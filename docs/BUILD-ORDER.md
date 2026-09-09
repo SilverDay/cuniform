@@ -74,12 +74,21 @@ and include cycles are build errors.
 
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
-| T10 | [ ] | Language resolver: derive language from tree, validate against config, reject unknown dirs | T2, T4 | §7.2 |
-| T11 | [ ] | Translation grouping by `translation_key`, duplicate detection | T10 | §7.3 |
-| T12 | [ ] | Route builder: `{L}` substitution for all three `url_prefix` modes, reserved slugs, namespace collision detection | T2, T5, T10 | §7.4, §8.1, §8.2 |
-| T13 | [ ] | UI string catalogue and `t()`, missing-key detection | T2 | §7.8 |
-| T14 | [ ] | hreflang set construction, `x-default`, self-reference, published-only filtering | T11, T12 | §7.5 |
-| T15 | [ ] | Date/number formatting via `IntlDateFormatter` with documented fallback | T13 | §7.9 |
+| T10 | [x] | Language resolver: derive language from tree, validate against config, reject unknown dirs | T2, T4 | §7.2 |
+| T11 | [x] | Translation grouping by `translation_key`, duplicate detection | T10 | §7.3 |
+| T12 | [x] | Route builder: `{L}` substitution for all three `url_prefix` modes, reserved slugs, namespace collision detection | T2, T5, T10 | §7.4, §8.1, §8.2 |
+| T13 | [x] | UI string catalogue and `t()`, missing-key detection | T2 | §7.8 |
+| T14 | [x] | hreflang set construction, `x-default`, self-reference, published-only filtering | T11, T12 | §7.5 |
+| T15 | [x] | Date/number formatting via `IntlDateFormatter` with documented fallback | T13 | §7.9 |
+
+**T10 acceptance:** a document's language is read from its path, never from front matter (no
+`lang` key exists to read — SPEC §5.2). A `posts/` or `pages/` subdirectory whose name is not
+in the configured `languages` is a build error, not a silently skipped folder — including on
+a single-language site, where the language segment is still required (§7.2).
+
+**T11 acceptance:** two documents in different languages sharing a `translation_key` group
+together; a key used by only one language is normal, not a warning; the same key used twice
+within one language is a build error naming both documents (§7.3).
 
 **T12 acceptance:** the same corpus builds correctly under `always`, `auto`, and `never`.
 Under `never` with two configured languages, config validation fails. A post claiming `/en/`,
@@ -90,6 +99,11 @@ back to the default language.
 
 **T14 acceptance:** a single-language site emits no `alternate` links, no `x-default`, and no
 `og:locale:alternate`. An asymmetric hreflang set fails the build.
+
+**T15 acceptance:** `2026-03-14` formats as `14. März 2026` for `de` and `14 March 2026` for
+`en`, both via `IntlDateFormatter` and via the fallback path with ext-intl unavailable — the
+fallback reads month names from the UI string catalogue (`month_01`..`month_12`, T13) rather
+than `strftime()` or system locale data (§7.9).
 
 ---
 

@@ -38,6 +38,32 @@ final class ContentException extends CuniformException
         return new self("File exceeds the maximum allowed size of {$maxBytes} bytes: {$path}");
     }
 
+    public static function notUnderPostsOrPages(string $relativePath): self
+    {
+        return new self("Path is not under posts/ or pages/: {$relativePath}");
+    }
+
+    /**
+     * @param list<string> $configuredLanguages
+     */
+    public static function unknownLanguageDirectory(string $relativePath, string $language, array $configuredLanguages): self
+    {
+        $allowed = implode(', ', $configuredLanguages);
+
+        return new self(
+            "'{$relativePath}' is under language directory '{$language}', which is not in the "
+            . "configured languages ({$allowed}) — SPEC §7.2"
+        );
+    }
+
+    public static function duplicateTranslationKey(string $key, string $language, string $firstIdentifier, string $secondIdentifier): self
+    {
+        return new self(
+            "translation_key '{$key}' appears twice within language '{$language}': "
+            . "'{$firstIdentifier}' and '{$secondIdentifier}' — SPEC §7.3"
+        );
+    }
+
     /**
      * @param list<string> $errors
      */
