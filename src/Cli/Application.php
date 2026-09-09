@@ -14,6 +14,9 @@ use Cuniform\CuniformException;
 use Cuniform\Cutover\LegacyUrlCrawler;
 use Cuniform\Cutover\StreamHttpFetcher;
 use Cuniform\Cutover\UrlInventoryWriter;
+use Cuniform\Import\ImportedDocumentWriter;
+use Cuniform\Import\WxrImporter;
+use Cuniform\Import\WxrReader;
 
 /**
  * Entry point for bin/cuniform. Stages 1-9 (SPEC §10.1) run for real, both
@@ -35,6 +38,12 @@ use Cuniform\Cutover\UrlInventoryWriter;
  * host's own placeholder), not yet the symlink `ReleaseDeployer` expects
  * to swap. Safe to run any number of times — a no-op once `public/` is
  * already a symlink.
+ *
+ * `import-wxr` (T34-37, SPEC Appendix A) reads a WordPress export and
+ * writes candidate Cuniform documents to a staging directory
+ * (`var/import/` by default) — never into `content/` directly. SPEC
+ * §A.5's manual review happens between "imported" and "shipped"; this
+ * command only does the first half.
  */
 final class Application
 {
@@ -71,6 +80,10 @@ final class Application
 
         if ($command === 'setup-public') {
             return $this->setupPublic();
+        }
+
+        if ($command === 'import-wxr') {
+            return $this->importWxr($arguments);
         }
 
         if ($command !== 'build') {
@@ -169,6 +182,63 @@ final class Application
         return 0;
     }
 
+    /**
+     * @param list<string> $arguments
+     */
+    private function importWxr(array $arguments): int
+    {
+        if ($arguments === [] || str_starts_with($arguments[0], '--')) {
+            fwrite(STDERR, "cuniform: import-wxr requires a path to a WXR export\n" . $this->usage());
+
+            return 2;
+        }
+
+        $path      = array_shift($arguments);
+        $outputDir = null;
+
+        foreach ($arguments as $argument) {
+            if (str_starts_with($argument, '--output-dir=')) {
+                $outputDir = substr($argument, strlen('--output-dir='));
+
+                continue;
+            }
+
+            fwrite(STDERR, "cuniform: unknown option '{$argument}'\n" . $this->usage());
+
+            return 2;
+        }
+
+        try {
+            $config = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: import-wxr failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        $outputDir ??= rtrim($config->paths->var, '/') . '/import';
+
+        try {
+            $wxr    = (new WxrReader())->parse($path);
+            $result = (new WxrImporter($config->defaultLanguage))->import($wxr);
+            (new ImportedDocumentWriter())->write($result['documents'], $outputDir);
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: import-wxr failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        foreach ($result['warnings'] as $warning) {
+            fwrite(STDERR, "cuniform: warning: {$warning}\n");
+        }
+
+        fwrite(STDOUT, 'cuniform: imported ' . count($result['documents']) . " documents -> {$outputDir}\n");
+        fwrite(STDOUT, "cuniform: staged for review (SPEC §A.5) — not written to content/. "
+            . "Review each document, then copy the ones you keep into content/posts/{$config->defaultLanguage}/.\n");
+
+        return 0;
+    }
+
     private function setupPublic(): int
     {
         try {
@@ -259,6 +329,7 @@ final class Application
           cuniform build --rollback
           cuniform legacy-urls <base-url> [--output=<path>] [--max-pages=<n>]
           cuniform setup-public
+          cuniform import-wxr <path-to-export.xml> [--output-dir=<path>]
 
         TXT;
     }

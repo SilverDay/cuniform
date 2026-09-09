@@ -151,6 +151,49 @@ final class ApplicationTest extends TestCase
         self::assertSame(1, $this->app()->run(['setup-public']));
     }
 
+    public function testImportWxrWithNoPathFailsWithUsage(): void
+    {
+        self::assertSame(2, $this->app()->run(['import-wxr']));
+    }
+
+    public function testImportWxrWithAnUnknownOptionFails(): void
+    {
+        self::assertSame(2, $this->app()->run(['import-wxr', '/tmp/x.xml', '--bogus']));
+    }
+
+    public function testImportWxrFailureFromAMissingConfigIsReportedNotFatal(): void
+    {
+        unlink($this->projectRoot . '/config/site.php');
+
+        self::assertSame(1, $this->app()->run(['import-wxr', '/tmp/x.xml']));
+    }
+
+    public function testImportWxrFailureFromAMissingExportFileIsReportedNotFatal(): void
+    {
+        self::assertSame(1, $this->app()->run(['import-wxr', $this->projectRoot . '/does-not-exist.xml']));
+    }
+
+    public function testImportWxrWritesDocumentsToTheDefaultStagingDirectory(): void
+    {
+        $exportPath = __DIR__ . '/../fixtures/Import/sample.xml';
+
+        self::assertSame(0, $this->app()->run(['import-wxr', $exportPath]));
+
+        $written = $this->projectRoot . '/var/import/posts/en/2020/2020-01-15-a-published-post.md';
+        self::assertFileExists($written);
+        self::assertStringContainsString('title: "A Published Post"', (string) file_get_contents($written));
+    }
+
+    public function testImportWxrWritesToACustomOutputDirWhenGiven(): void
+    {
+        $exportPath = __DIR__ . '/../fixtures/Import/sample.xml';
+        $outputDir  = $this->projectRoot . '/custom-staging';
+
+        self::assertSame(0, $this->app()->run(['import-wxr', $exportPath, "--output-dir={$outputDir}"]));
+
+        self::assertFileExists($outputDir . '/posts/en/2020/2020-01-15-a-published-post.md');
+    }
+
     private function app(): Application
     {
         return new Application($this->projectRoot);

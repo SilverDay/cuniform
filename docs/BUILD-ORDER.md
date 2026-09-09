@@ -544,7 +544,7 @@ correct and needs no change.
 | T34 | [x] | WXR streaming parser with external entities disabled | — | §A.1 |
 | T35 | [x] | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34 | §A.3 |
 | T36 | [ ] | Media downloader with host allow-list and checksums | T34 | §A.3 |
-| T37 | [ ] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
+| T37 | [x] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
 | T38 | [ ] | Verification: count reconciliation, URL diff, word-count tolerance, migration report | T37 | §A.4 |
 | T39 | [ ] | Manual review tracking file and checklist workflow | T38 | §A.5 |
 
@@ -671,6 +671,58 @@ safely neutralize the rest even if this class tried. Not present anywhere in the
 (confirmed, not assumed), so this is a real but currently-inert limitation — worth revisiting
 if a future export actually has prose containing literal `[bracket text]` or a line starting
 with a Markdown-significant character.
+
+**T37 note:** three new pieces in `src/Import/` — `FrontMatterEmitter` (writes a front matter
+block that `RestrictedYamlParser`, T4, can read back — the first thing in this codebase that
+needs to *write* front matter rather than only parse it), `WxrImporter` (the orchestrator: partitions
+by `wp:post_type`/`wp:status`, this task's own share of §A.3's "Pipeline" step —
+BUILD-ORDER's T34 note already flagged that partitioning belonged here, not in the parser), and
+`ImportedDocumentWriter`. Plus `bin/cuniform import-wxr <path-to-export.xml>
+[--output-dir=<path>]`, tying `WxrReader` (T34) → `WxrImporter` → `ImportedDocumentWriter`
+together.
+
+**Posts only, this pass.** The real export has no `page` items to validate a page-import path
+against (T34's own note: 6 items, all `post_type=post`) — a `page` item is recognized and
+reported with a warning, never silently dropped, but not yet converted to a `PageFrontMatter`
+document. `WxrImporter`'s own docblock flags this as the thing to revisit once a real export
+actually has one, rather than guessing at a design nothing can confirm.
+
+**Staged, not shipped.** `import-wxr` never writes into `content/` — output lands in
+`var/import/` by default (never built, never served), because SPEC §A.5 requires every
+imported document to be reviewed before it ships, and writing straight into `content/posts/`
+would make a freshly imported document visible to the very next `bin/cuniform build` with
+nothing in between. Promoting a reviewed document into `content/` is left as the operator's
+own deliberate action; nothing here suggests a "promote" command exists yet.
+
+**Redirects are per-document `aliases` front matter, not a written file.** `RedirectMapCompiler`
+(T21) already turns a document's own `aliases` list into a compiled redirect at build time —
+`WxrImporter` only has to put the item's old path there (from `wp:link`'s path component, and
+only when it was a real pretty-permalink path — a `?p=123` link never had a real indexed URL,
+so it gets no alias). This is deliberately the *entire* scope of "redirect generation" this
+task claims: SPEC §A.3 also mentions category/tag archives, feeds, and date archives in the
+same breath, but those aren't tied to any single document's front matter, Cuniform has no
+"category" concept to map WordPress's onto, and BUILD-ORDER's own T37 line names "redirect
+generation for every *document*" specifically. Left for a dedicated follow-up, not silently
+dropped — `WxrImporter`'s own docblock says so explicitly.
+
+**One documented judgment call**, the same kind T17 already established a pattern for
+(flag it, don't silently decide): WordPress categories and tags are merged into one flat,
+deduplicated `tags` list, case-insensitively — Cuniform has no separate "category" concept to
+keep them apart. The real export's own categories (general, webdesign, virtual-worlds, ...)
+read as broad topical tags in practice, not a rigid hierarchy, which is what makes this
+reasonable rather than just convenient; worth a second look if a future export's categories are
+more clearly hierarchical.
+
+Validated the same way T34 and T35 were: all six real posts run through `WxrImporter`, and
+every one of the resulting six front matter blocks parses cleanly through the actual
+`Cuniform\Content\FrontMatter\FrontMatterParser` — not just this task's own emitter — with
+zero errors. One real warning fires, exactly where expected: `post_id=180`'s WXR `post_name`
+was empty (an unfinished draft that was never actually published under a real slug), so its
+slug is derived from the title via Cuniform's own `Slugifier` instead — SPEC §5.4's verbatim
+policy has nothing to take verbatim in that case, and the fallback is reported, not silent.
+None of this real-corpus content is committed; `WxrImporterTest` builds small in-memory
+`WxrItem`s directly rather than round-tripping through a shared XML fixture, for the same
+readability reason T35's tests do.
 
 **T38 acceptance:** the import is idempotent — running it twice against the same export
 produces identical output. Any count delta between export and generated files is a hard failure.
