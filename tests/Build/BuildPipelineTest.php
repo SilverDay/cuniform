@@ -122,6 +122,88 @@ final class BuildPipelineTest extends TestCase
         self::assertStringContainsString('<loc>https://blog.silverday.de/de/tag/awareness/</loc>', $sitemap);
     }
 
+    public function testASecondUnchangedBuildReusesEveryDocumentFromCache(): void
+    {
+        $config   = $this->config(self::REAL_TEMPLATES, $this->mutableContentDir());
+        $pipeline = new BuildPipeline($config, self::LANG_DIR);
+
+        $first = $pipeline->run(new BuildOptions());
+        self::assertSame(0, $first->reusedDocumentCount, 'nothing to reuse on the very first build');
+
+        $second = $pipeline->run(new BuildOptions());
+        self::assertSame($second->documentCount, $second->reusedDocumentCount, 'nothing changed — every document should be reused');
+    }
+
+    public function testEditingOnePostIsReflectedAndOnlyPartiallyInvalidatesTheCache(): void
+    {
+        $contentDir = $this->mutableContentDir();
+        $config     = $this->config(self::REAL_TEMPLATES, $contentDir);
+        $pipeline   = new BuildPipeline($config, self::LANG_DIR);
+
+        $pipeline->run(new BuildOptions());
+
+        $postPath = $contentDir . '/posts/de/2026/2026-03-14-sicherheitskultur.md';
+        $edited   = str_replace('Kultur schlägt Compliance.', 'Kultur schlägt Compliance, immer noch.', (string) file_get_contents($postPath));
+        self::assertNotSame((string) file_get_contents($postPath), $edited, 'sanity: the replacement must actually change the file');
+        file_put_contents($postPath, $edited);
+
+        $second = $pipeline->run(new BuildOptions());
+        self::assertNotNull($second->releaseDir);
+
+        self::assertGreaterThan(0, $second->reusedDocumentCount, 'unrelated documents must still be reused');
+        self::assertLessThan($second->documentCount, $second->reusedDocumentCount, 'the edited document itself must not be reused');
+
+        $dePost = $this->read($second->releaseDir, '/de/sicherheitskultur/');
+        self::assertStringContainsString('Kultur schlägt Compliance, immer noch.', $dePost);
+    }
+
+    public function testFullFlagForcesEveryDocumentToBeReRendered(): void
+    {
+        $config   = $this->config(self::REAL_TEMPLATES, $this->mutableContentDir());
+        $pipeline = new BuildPipeline($config, self::LANG_DIR);
+
+        $pipeline->run(new BuildOptions());
+        $second = $pipeline->run(new BuildOptions(full: true));
+
+        self::assertSame(0, $second->reusedDocumentCount);
+    }
+
+    public function testEditingATemplateInvalidatesEveryDocumentOnTheNextBuild(): void
+    {
+        $templatesDir = $this->scratchDir . '/templates-copy';
+        $this->copyDirectory(self::REAL_TEMPLATES, $templatesDir);
+
+        $config   = $this->config($templatesDir, $this->mutableContentDir());
+        $pipeline = new BuildPipeline($config, self::LANG_DIR);
+
+        $pipeline->run(new BuildOptions());
+
+        $postTemplate = $templatesDir . '/post.php';
+        file_put_contents($postTemplate, str_replace('post-body', 'post-body post-body-v2', (string) file_get_contents($postTemplate)));
+
+        $second = $pipeline->run(new BuildOptions());
+
+        self::assertSame(0, $second->reusedDocumentCount, 'a changed template must invalidate every cached document');
+    }
+
+    public function testEditingAUiStringFileInvalidatesEveryDocumentOnTheNextBuild(): void
+    {
+        $langDir = $this->scratchDir . '/lang-copy';
+        $this->copyDirectory(self::LANG_DIR, $langDir);
+
+        $config   = $this->config(self::REAL_TEMPLATES, $this->mutableContentDir());
+        $pipeline = new BuildPipeline($config, $langDir);
+
+        $pipeline->run(new BuildOptions());
+
+        $enStrings = $langDir . '/en.php';
+        file_put_contents($enStrings, str_replace("'Updated on'", "'Updated on!'", (string) file_get_contents($enStrings)));
+
+        $second = $pipeline->run(new BuildOptions());
+
+        self::assertSame(0, $second->reusedDocumentCount, 'a changed UI string file must invalidate every cached document');
+    }
+
     public function testEmitStageWritesFeedsSitemapSearchIndexRobotsAndSecurityTxt(): void
     {
         $pipeline = new BuildPipeline($this->config(self::REAL_TEMPLATES), self::LANG_DIR);
@@ -334,7 +416,7 @@ final class BuildPipelineTest extends TestCase
         return (string) file_get_contents($path);
     }
 
-    private function config(string $templatesDir): Config
+    private function config(string $templatesDir, ?string $contentDir = null): Config
     {
         return new Config(
             baseUrl: 'https://blog.silverday.de',
@@ -347,7 +429,7 @@ final class BuildPipelineTest extends TestCase
             postsPerPage: 10,
             feedItems: 20,
             paths: new ConfigPaths(
-                content: self::FIXTURE_CONTENT,
+                content: $contentDir ?? self::FIXTURE_CONTENT,
                 templates: $templatesDir,
                 releases: $this->scratchDir . '/releases',
                 public: $this->scratchDir . '/public',
@@ -356,6 +438,34 @@ final class BuildPipelineTest extends TestCase
             build: new BuildSettings(5, 2 * 1024 * 1024, 0.10, 750 * 1024),
             mail: new MailSettings(false, 'a@example.com', 'a@example.com', 'a@example.com'),
         );
+    }
+
+    /**
+     * A writable copy of the fixture content tree, for tests that need to
+     * edit a file between two builds — self::FIXTURE_CONTENT is shared and
+     * must stay read-only.
+     */
+    private function mutableContentDir(): string
+    {
+        $target = $this->scratchDir . '/content';
+        $this->copyDirectory(self::FIXTURE_CONTENT, $target);
+
+        return $target;
+    }
+
+    private function copyDirectory(string $source, string $target): void
+    {
+        mkdir($target, 0o755, true);
+        $items = scandir($source);
+        foreach ($items as $item) {
+            if ($item === '.' || $item === '..') {
+                continue;
+            }
+
+            $from = $source . '/' . $item;
+            $to   = $target . '/' . $item;
+            is_dir($from) ? $this->copyDirectory($from, $to) : copy($from, $to);
+        }
     }
 
     private function removeDirectory(string $path): void

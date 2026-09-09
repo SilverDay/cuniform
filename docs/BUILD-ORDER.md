@@ -119,7 +119,7 @@ than `strftime()` or system locale data (§7.9).
 | T21 | [x] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
 | T22 | [x] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
 | T23 | [x] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
-| T24 | [ ] | Incremental build cache and invalidation, including translation-group invalidation | T19 | §10.2 |
+| T24 | [x] | Incremental build cache and invalidation, including translation-group invalidation | T19 | §10.2 |
 
 **T16 acceptance:** `e`/`eAttr`/`eUrl`/`eJs` are the only four names `make lint`'s
 escaping-lint accepts after a bare `<?=` (plus `t`, already true from T13's design). `eUrl`
@@ -323,6 +323,71 @@ build now reports `deployed -> <public path>` once the swap succeeds.
 
 **T24 acceptance:** editing one post rebuilds that post, its list pages, and every page in its
 translation group. Editing a UI string file or a template rebuilds everything.
+
+**T24 note:** Discover/Parse/Resolve/Listing (stages 2-4, plus `ListingResolver`) run in full
+for every build regardless of caching — they're cheap (front-matter parsing, not Markdown
+conversion), and routes/nav/hreflang/listing aggregation are only meaningful computed for the
+whole corpus at once anyway. What's actually cached, keyed by
+`ParsedDocument::identifier()`, is the expensive per-document work SPEC §10.2's formula
+describes: Render (stage 5 — Markdown + shortcode conversion via the renderer fork) and that
+document's own Template step (stage 6 — `SiteTemplateStage`'s post.php/page.php + layout.php
+render). A document outside the dirty set skips both and reuses its previous build's rendered
+body and already-assembled page bytes directly from `BuildCache` (`var/build-cache.json` —
+build-internal bookkeeping, same as `var/last-build-meta.json`, T22). This means "its list
+pages" (index/tag/series/archive) are satisfied trivially and correctly without needing
+pagination-boundary-aware dependency tracking: `ListingTemplateStage` always re-templates every
+listing route from freshly-parsed front matter every build (cheap — cards use only title/
+summary/date/tags, never the rendered body), so a changed post's appearance there is always
+right regardless of whether its own Render/Template step was skipped. Verify (stage 8) also
+always runs against the complete page set, cached pages included — a cached page's own bytes
+being unchanged says nothing about whether something it links to still exists in *this*
+release, so it isn't exempted.
+
+`BuildCacheKey` computes SPEC §10.2's formula (`SHA-256(file) + SHA-256(templates) +
+SHA-256(UI strings) + engine version + SHA-256(Md2Html.php)`) with the last four folded into
+one `$globalSuffix` shared by every document's key — which is also what makes "a changed
+template, UI string file, [or renderer] invalidates everything" fall out for free: change any
+of them and *every* document's key differs, no separate rule needed. `EngineVersion::VERSION`
+is a new small constant for the "engine version" component; `Md2Html.php`'s own path is found
+via `ReflectionClass` rather than threading another constructor parameter through, since it's
+always exactly wherever the autoloader put it. Also folded into `$globalSuffix`, beyond SPEC's
+literal formula: the parts of `Config` that are embedded directly into every cached page's
+`<head>` or route (`base_url`, `title`, `languages`, `default_language`, `url_prefix`,
+`permalink`) — otherwise a config edit could produce stale cached output with nothing to catch
+it. `templates/` is hashed as a whole directory tree, not just `.php` files — `style.css` and
+`search.js` live there too, and a cached page's `<head>` embeds their *fingerprinted* URL, which
+changes whenever their contents do; missing that would leave cached pages linking a stylesheet
+filename that no longer exists in the new release.
+
+The nav tree ("a nav-affecting page invalidates everything," SPEC §10.2) needed a separate
+mechanism: it isn't a static file, and it's derived from every page's front matter
+collectively, not any one document's own hash. `BuildCacheKey::navHash()` serializes the nav
+tree per language and hashes it; `IncrementalPlanner` compares it build-to-build and, if it
+differs, bypasses per-document diffing entirely — every document is dirty, full stop. Every
+cached page's `layout.php` chrome embeds the nav tree, so this is exactly as broad as it needs
+to be.
+
+Translation-group propagation (SPEC §10.2: "every page in its translation group [changes,
+since] its hreflang set changed") is the one rule that genuinely can't be derived from a
+per-document key comparison — a document's own key can be unchanged while its hreflang
+alternates list is stale, because a *sibling* was edited, added, or removed.
+`IncrementalPlanner` handles all three: for every `translation_key` seen in either this
+build's documents or the previous manifest's cached entries, if the member set changed (a
+sibling appeared or disappeared) or any current member is already directly dirty, every
+*current* member of that group is marked dirty too — including one whose own content is
+completely unchanged. This is deliberately coarse (SPEC's own "any ambiguity resolves toward a
+full rebuild"): it doesn't check whether the actual change would affect the sibling's rendered
+hreflang output, just whether anything in the group moved.
+
+One dependency this task does **not** track, documented prominently in `IncrementalPlanner`'s
+own docblock rather than left to be discovered as a bug: `[include]` (SPEC §6.5). A page
+reached only via `[include]`, not edited directly itself, does not propagate to documents that
+include it — `DocumentRenderer`'s `IncludeResolvingPageRepository` resolves include targets
+independently and always fresh regardless of this cache, but the *including* document's own
+top-level render can still be served from cache even though the page it includes changed.
+`--full` (now actually doing something — previously accepted and ignored) is the workaround;
+closing this gap for real would mean `RenderedDocument` reporting which pages it included,
+which is a reasonable follow-up but out of this task's scope.
 
 ---
 

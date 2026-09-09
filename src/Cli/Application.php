@@ -126,13 +126,15 @@ final class Application
             fwrite(STDERR, "cuniform: warning: {$warning}\n");
         }
 
+        $reused = $result->reusedDocumentCount > 0 ? " ({$result->reusedDocumentCount} reused from cache)" : '';
+
         if ($result->releaseDir === null) {
-            fwrite(STDOUT, "cuniform: dry run OK — {$result->documentCount} documents, {$result->routeCount} routes\n");
+            fwrite(STDOUT, "cuniform: dry run OK — {$result->documentCount} documents{$reused}, {$result->routeCount} routes\n");
 
             return 0;
         }
 
-        fwrite(STDOUT, "cuniform: built {$result->documentCount} documents, {$result->routeCount} routes -> {$result->releaseDir}\n");
+        fwrite(STDOUT, "cuniform: built {$result->documentCount} documents{$reused}, {$result->routeCount} routes -> {$result->releaseDir}\n");
         fwrite(STDOUT, "cuniform: deployed -> {$this->projectRoot}/public\n");
 
         return 0;

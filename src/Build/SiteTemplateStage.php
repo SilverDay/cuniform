@@ -19,10 +19,17 @@ use Cuniform\Template\ViewModel;
 
 /**
  * Stage 6 — Template (SPEC §10.1, §9): builds each document's ViewModel and
- * wraps it in layout.php. Only post.php and page.php are wired here — the
- * generated-listing templates (index/tag/series/archive/search/feed.xml)
- * don't exist yet (T17 is still partial); this stage renders exactly the
- * routes stage 4 (Resolve) produced, which are posts and pages only.
+ * wraps it in layout.php. Only post.php and page.php are wired here —
+ * ListingTemplateStage (T17) handles the generated-listing routes
+ * (index/tag/series/archive/search/404) from aggregated data instead of
+ * one ResolvedDocument at a time.
+ *
+ * `$dirty` (T24, SPEC §10.2) restricts this to the documents an
+ * incremental build actually needs to re-template — BuildPipeline reuses
+ * a cached page's bytes directly for everything not in it, so this
+ * returns a map keyed by identifier rather than a plain list, letting the
+ * caller merge fresh and cached pages by identifier without a second pass
+ * over `$site->documents` to recover which route belongs to which.
  */
 final class SiteTemplateStage
 {
@@ -40,15 +47,22 @@ final class SiteTemplateStage
 
     /**
      * @param  array<string, RenderedDocument> $renderedByIdentifier
-     * @return list<GeneratedFile>
+     * @param  array<string, true>             $dirty Identifiers to render;
+     *                                                  every other document
+     *                                                  in $site is skipped.
+     * @return array<string, GeneratedFile> Keyed by identifier.
      */
-    public function build(ResolvedSite $site, array $renderedByIdentifier): array
+    public function build(ResolvedSite $site, array $renderedByIdentifier, array $dirty): array
     {
         $files = [];
 
         foreach ($site->documents as $document) {
             $identifier = $document->parsed->identifier();
-            $rendered   = $renderedByIdentifier[$identifier];
+            if (!isset($dirty[$identifier])) {
+                continue;
+            }
+
+            $rendered = $renderedByIdentifier[$identifier];
 
             $viewModel = $this->buildViewModel($document, $rendered);
             $templateName = $document->parsed->frontMatter instanceof PageFrontMatter
@@ -63,7 +77,7 @@ final class SiteTemplateStage
             $layout = new LayoutContext($viewModel, $inner, $this->config->title, $nav['primary'], $nav['footer'], $this->stylesheetUrl);
             $html   = $this->templateRenderer->render($this->templateResolver->resolve('layout.php'), $layout);
 
-            $files[] = new GeneratedFile($document->url, $html);
+            $files[$identifier] = new GeneratedFile($document->url, $html);
         }
 
         return $files;

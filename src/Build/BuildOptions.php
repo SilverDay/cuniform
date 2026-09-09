@@ -5,11 +5,12 @@ declare(strict_types=1);
 namespace Cuniform\Build;
 
 /**
- * CLI flags that reach the pipeline (SPEC §10.5, §10.3,
+ * CLI flags that reach the pipeline (SPEC §10.5, §10.3, §10.2,
  * `bin/cuniform build [--full] [--dry-run] [--allow-url-scheme-change]`).
- * `full` is accepted but has no effect yet — incremental builds are T24; every
- * build is a full build until that lands, which is also T24's own "any
- * ambiguity resolves toward a full rebuild" default (SPEC §10.2).
+ * `full` forces every document through IncrementalPlanner as dirty,
+ * bypassing the build cache entirely (SPEC §10.2) — the explicit escape
+ * hatch for cases the cache can't see on its own, e.g. an edited
+ * `[include]` target (see IncrementalPlanner's own docblock).
  * `allowUrlSchemeChange` is the explicit statement of intent §10.3 requires
  * before a build is allowed to silently move every URL on the site.
  */

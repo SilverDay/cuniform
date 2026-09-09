@@ -10,6 +10,7 @@ use Cuniform\Content\FrontMatter\FrontMatterParser;
 use Cuniform\Content\FrontMatter\PageFrontMatter;
 use Cuniform\I18n\DateFormatter;
 use Cuniform\I18n\UiStringCatalogue;
+use Cuniform\Render\RenderedDocument;
 use Cuniform\Template\TemplateResolver;
 
 /**
@@ -29,6 +30,21 @@ use Cuniform\Template\TemplateResolver;
  * real (non-dry-run) build writes a complete release tree under
  * `paths.releases/<timestamp>/`, verifies it, then atomically swaps
  * `public/` onto it.
+ *
+ * Incremental builds (T24, SPEC §10.2): Discover/Parse/Resolve/Listing
+ * always run in full for every document — they're cheap, and Resolve's
+ * routes/nav/hreflang/listing aggregation are only meaningful computed
+ * for the whole corpus at once anyway. What IncrementalPlanner (via
+ * BuildCache/BuildCacheKey) actually gates is the expensive per-document
+ * work: Render (Markdown + shortcode conversion) and that document's own
+ * Template step. A document outside the dirty set reuses its previous
+ * build's rendered body (for feeds/search-index, which still read every
+ * document's body every build — see ArtifactStage) and its previously
+ * assembled page bytes directly, skipping both steps entirely. Verify
+ * still runs against the *complete* page set, cached pages included —
+ * deliberately not cached itself, since a cached page's own bytes being
+ * unchanged says nothing about whether something it links to still
+ * exists in *this* release.
  */
 final class BuildPipeline
 {
@@ -75,17 +91,34 @@ final class BuildPipeline
             static fn (ParsedDocument $document): bool => $document->frontMatter instanceof PageFrontMatter
         ));
 
-        $adapterFactory    = new RenderAdapterFactory($gateway, $frontMatterParser);
-        $documentRenderer  = new DocumentRenderer($adapterFactory);
-
-        $renderedByIdentifier = [];
-        foreach ($site->documents as $document) {
-            $renderedByIdentifier[$document->parsed->identifier()] = $documentRenderer->render($document, $includedPages);
-        }
-
         $strings       = UiStringCatalogue::load($this->langDir, $this->config->languages);
         $dateFormatter = new DateFormatter($strings);
         $listing       = (new ListingResolver($this->config, $dateFormatter))->resolve($site);
+
+        $buildCache       = new BuildCache(rtrim($this->config->paths->var, '/') . '/build-cache.json');
+        $previousManifest = $buildCache->load();
+        $cacheKey          = new BuildCacheKey($this->config, $this->config->paths->templates, $this->langDir);
+        $navHash           = $cacheKey->navHash($site->navByLanguage);
+        $plan              = (new IncrementalPlanner())->plan($site->documents, $previousManifest, $navHash, $cacheKey, $options->full);
+
+        $adapterFactory   = new RenderAdapterFactory($gateway, $frontMatterParser);
+        $documentRenderer = new DocumentRenderer($adapterFactory);
+
+        $renderedByIdentifier = [];
+        $dirty                = [];
+        foreach ($site->documents as $document) {
+            $identifier = $document->parsed->identifier();
+
+            if (!$plan->isDirty($identifier)) {
+                $cached = $previousManifest->documents[$identifier];
+                $renderedByIdentifier[$identifier] = new RenderedDocument($document->parsed->frontMatter, $cached->bodyHtml, $cached->headings);
+
+                continue;
+            }
+
+            $dirty[$identifier]                = true;
+            $renderedByIdentifier[$identifier]  = $documentRenderer->render($document, $includedPages);
+        }
 
         $artifacts = (new ArtifactStage($this->config))->build($site, $listing, $renderedByIdentifier, $now);
 
@@ -112,8 +145,17 @@ final class BuildPipeline
         // Every template renders to a string here, entirely in memory, before
         // anything is written to disk — a template error propagates from
         // build() with zero filesystem side effects (SPEC §9 rule 6).
+        $freshPages = $templateStage->build($site, $renderedByIdentifier, $dirty);
+
+        $pagesByIdentifier = [];
+        foreach ($site->documents as $document) {
+            $identifier = $document->parsed->identifier();
+            $pagesByIdentifier[$identifier] = $freshPages[$identifier]
+                ?? new GeneratedFile($document->url, $previousManifest->documents[$identifier]->pageHtml);
+        }
+
         $pages = [
-            ...$templateStage->build($site, $renderedByIdentifier),
+            ...array_values($pagesByIdentifier),
             ...$listingStage->build($listing, $site->navByLanguage),
         ];
 
@@ -148,9 +190,28 @@ final class BuildPipeline
             // whose deploy step fails must leave the stored baseline
             // matching whatever is still actually live.
             (new UrlSchemeGuard($urlSchemeMetaPath))->persist($this->config);
+
+            // Same reasoning for the incremental cache: only a build that
+            // actually deployed becomes the baseline a later build's
+            // IncrementalPlanner compares against.
+            $newDocuments = [];
+            foreach ($site->documents as $document) {
+                $identifier = $document->parsed->identifier();
+                $newDocuments[$identifier] = new CachedDocument(
+                    $plan->baseKeyByIdentifier[$identifier],
+                    $document->parsed->frontMatter->shared->translationKey,
+                    $renderedByIdentifier[$identifier]->bodyHtml,
+                    $renderedByIdentifier[$identifier]->headings,
+                    $pagesByIdentifier[$identifier]->html,
+                    $document->url,
+                );
+            }
+            $buildCache->save(new CacheManifest($navHash, $newDocuments));
         }
 
-        return new BuildResult(count($site->documents), count($pages), $warnings, $releaseDir);
+        $reusedDocumentCount = count($site->documents) - count($dirty);
+
+        return new BuildResult(count($site->documents), count($pages), $warnings, $releaseDir, $reusedDocumentCount);
     }
 
     /**
