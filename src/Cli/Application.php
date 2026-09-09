@@ -10,16 +10,18 @@ use Cuniform\Config\ConfigLoader;
 use Cuniform\CuniformException;
 
 /**
- * Entry point for bin/cuniform. Stages 1-7 (SPEC §10.1) run for real, both
- * for `--dry-run` (nothing is written to disk) and a plain build (writes a
- * complete release tree under `paths.releases/<timestamp>/`). Stages 8-9 —
- * Verify and the atomic deploy into `public/` — are T22-T23 and don't exist
- * yet, so a plain build never touches `public/`, and `--rollback` (which
- * presupposes a deploy to roll back from) stays unimplemented until T23.
+ * Entry point for bin/cuniform. Stages 1-8 (SPEC §10.1) run for real, both
+ * for `--dry-run` (nothing is written to disk, but Verify still runs — a
+ * dry run tells you whether a real build *would* succeed) and a plain
+ * build (writes a complete release tree under `paths.releases/<timestamp>/`
+ * once Verify passes). Stage 9 — the atomic deploy into `public/` — is
+ * T23 and doesn't exist yet, so a plain build never touches `public/`, and
+ * `--rollback` (which presupposes a deploy to roll back from) stays
+ * unimplemented until T23.
  */
 final class Application
 {
-    private const KNOWN_FLAGS = ['full', 'dry-run', 'rollback'];
+    private const KNOWN_FLAGS = ['full', 'dry-run', 'rollback', 'allow-url-scheme-change'];
 
     /**
      * @param string $projectRoot Directory containing config/, content/, etc.
@@ -69,15 +71,15 @@ final class Application
             return 1;
         }
 
-        return $this->build(isset($flags['full']), isset($flags['dry-run']));
+        return $this->build(isset($flags['full']), isset($flags['dry-run']), isset($flags['allow-url-scheme-change']));
     }
 
-    private function build(bool $full, bool $dryRun): int
+    private function build(bool $full, bool $dryRun, bool $allowUrlSchemeChange): int
     {
         try {
             $config   = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
             $pipeline = new BuildPipeline($config, $this->projectRoot . '/config/lang');
-            $result   = $pipeline->run(new BuildOptions(full: $full, dryRun: $dryRun));
+            $result   = $pipeline->run(new BuildOptions(full: $full, dryRun: $dryRun, allowUrlSchemeChange: $allowUrlSchemeChange));
         } catch (CuniformException $e) {
             fwrite(STDERR, "cuniform: build failed\n{$e->getMessage()}\n");
 
@@ -95,7 +97,7 @@ final class Application
         }
 
         fwrite(STDOUT, "cuniform: built {$result->documentCount} documents, {$result->routeCount} routes -> {$result->releaseDir}\n");
-        fwrite(STDOUT, "cuniform: deploy is not implemented yet (see docs/BUILD-ORDER.md, T22-T23) — public/ was not updated\n");
+        fwrite(STDOUT, "cuniform: deploy is not implemented yet (see docs/BUILD-ORDER.md, T23) — public/ was not updated\n");
 
         return 0;
     }
@@ -104,7 +106,7 @@ final class Application
     {
         return <<<'TXT'
         Usage:
-          cuniform build [--full] [--dry-run]
+          cuniform build [--full] [--dry-run] [--allow-url-scheme-change]
           cuniform build --rollback
 
         TXT;

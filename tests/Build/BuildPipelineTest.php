@@ -78,6 +78,10 @@ final class BuildPipelineTest extends TestCase
         $cssPath = $cssMatch[1] ?? throw new \RuntimeException('unreachable');
         self::assertFileExists($result->releaseDir . $cssPath);
         self::assertStringEqualsFile($result->releaseDir . $cssPath, (string) file_get_contents(self::REAL_TEMPLATES . '/style.css'));
+
+        // The media file the front-matter `image` and [figure] shortcode both
+        // reference must actually exist in the release (SPEC §7.10, §10.3).
+        self::assertFileExists($result->releaseDir . '/media/2026/03/photo.jpg');
     }
 
     public function testEmitStageWritesFeedsSitemapSearchIndexRobotsAndSecurityTxt(): void
@@ -181,6 +185,87 @@ final class BuildPipelineTest extends TestCase
             self::fail('expected a template rendering failure');
         } catch (\Cuniform\Render\RenderException $e) {
             self::assertStringContainsString('Template not found', $e->getMessage());
+        }
+
+        self::assertSame([], glob($this->scratchDir . '/releases/*') ?: []);
+    }
+
+    public function testUrlSchemeChangeIsBlockedThenAllowedWithTheFlag(): void
+    {
+        $config = $this->config(self::REAL_TEMPLATES);
+        (new BuildPipeline($config, self::LANG_DIR))->run(new BuildOptions());
+
+        $changed = new Config(
+            baseUrl: $config->baseUrl,
+            title: $config->title,
+            timezone: $config->timezone,
+            languages: $config->languages,
+            defaultLanguage: 'de',
+            urlPrefix: $config->urlPrefix,
+            permalink: $config->permalink,
+            postsPerPage: $config->postsPerPage,
+            feedItems: $config->feedItems,
+            paths: $config->paths,
+            build: $config->build,
+            mail: $config->mail,
+        );
+
+        try {
+            (new BuildPipeline($changed, self::LANG_DIR))->run(new BuildOptions());
+            self::fail('expected a URL-scheme-change failure');
+        } catch (BuildException $e) {
+            self::assertStringContainsString('--allow-url-scheme-change', $e->getMessage());
+        }
+
+        $result = (new BuildPipeline($changed, self::LANG_DIR))->run(new BuildOptions(allowUrlSchemeChange: true));
+        self::assertNotNull($result->releaseDir);
+    }
+
+    public function testDryRunStillRunsVerificationAndCanFail(): void
+    {
+        $brokenContent = $this->scratchDir . '/broken-content';
+        mkdir("{$brokenContent}/posts/de/2026", 0o755, true);
+        file_put_contents(
+            "{$brokenContent}/posts/de/2026/2026-01-01-x.md",
+            <<<'MD'
+            ---
+            title: "X"
+            slug: "x"
+            status: "published"
+            summary: "Summary."
+            date: "2026-01-01"
+            ---
+            See [broken](/de/does-not-exist/).
+            MD
+        );
+
+        $config  = $this->config(self::REAL_TEMPLATES);
+        $broken  = new Config(
+            baseUrl: $config->baseUrl,
+            title: $config->title,
+            timezone: $config->timezone,
+            languages: ['de'],
+            defaultLanguage: 'de',
+            urlPrefix: $config->urlPrefix,
+            permalink: $config->permalink,
+            postsPerPage: $config->postsPerPage,
+            feedItems: $config->feedItems,
+            paths: new ConfigPaths(
+                content: $brokenContent,
+                templates: self::REAL_TEMPLATES,
+                releases: $config->paths->releases,
+                public: $config->paths->public,
+                var: $config->paths->var,
+            ),
+            build: $config->build,
+            mail: $config->mail,
+        );
+
+        try {
+            (new BuildPipeline($broken, self::LANG_DIR))->run(new BuildOptions(dryRun: true));
+            self::fail('expected a broken-link failure even on a dry run');
+        } catch (BuildException $e) {
+            self::assertStringContainsString('does-not-exist', $e->getMessage());
         }
 
         self::assertSame([], glob($this->scratchDir . '/releases/*') ?: []);

@@ -117,7 +117,7 @@ than `strftime()` or system locale data (§7.9).
 | T19 | [x] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
 | T20 | [x] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
 | T21 | [x] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
-| T22 | [ ] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
+| T22 | [x] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
 | T23 | [ ] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
 | T24 | [ ] | Incremental build cache and invalidation, including translation-group invalidation | T19 | §10.2 |
 
@@ -194,6 +194,40 @@ through the relaunch even though `en` is now `default_language`.
 **T22 acceptance:** each verification condition in §10.3 has a test that makes it fire.
 A redirect pointing at a non-existent path blocks the deploy. Changing `url_prefix` without
 `--allow-url-scheme-change` blocks the deploy and prints the vhost directives that must change.
+
+**T22 note:** two conditions §10.3 lists were already enforced earlier in the pipeline before
+this task (alias-shadows-a-route and reserved-slug, both in `SiteResolver`/T19; hreflang
+asymmetry, `HreflangSymmetryChecker`/T14; missing UI string key, `UiStringCatalogue`/T13) — not
+re-implemented, only confirmed each still has a firing test. This task built the rest: well-
+formedness, internal-link/media resolution, the page-count-drop guard, the URL-scheme-change
+guard, and redirect-target resolution — all in `BuildVerifier`, run as stage 8 whether or not
+`--dry-run` was given (a dry run's whole point is telling you whether a real build *would*
+succeed).
+
+Two things had to be built to make verification meaningful rather than vacuous, neither owned
+by an earlier task: `MediaCopier` actually copies `content/media/` into the release (SPEC §7.10
+lists it as a shared artifact, but nothing before this ever wrote it — without it, "any
+referenced media file is missing" had nothing to check against) and `WellFormednessChecker`
+does *not* use `DOMDocument`'s HTML parser directly, because that parser silently repairs
+almost anything short of a null byte and would never actually fire; it self-closes void
+elements and expands bare boolean attributes (`<video controls>` → `controls="controls"` —
+valid HTML5, invalid XML, and something `VideoHandler` genuinely emits) before parsing as
+strict XML, which reliably catches real tag-mismatch bugs.
+
+One deliberate, documented carve-out: `InternalLinkChecker` treats a link to a bare language
+home path (`/en/`, `/de/`) as a warning, not a build-blocking error. Every current template
+that builds a `HreflangSet` points `x-default` at exactly that path (SPEC §7.5), but no route
+generates it yet — T17's `index.php` remains unbuilt — so on any multi-language site it can
+never resolve *by construction* today. Treating it as fatal would make full verification
+permanently unpassable rather than catching a real mistake. Remove the carve-out once T17
+builds the home route; a genuinely broken authored link still fails the build today.
+
+The URL-scheme-change guard and the page-count-drop guard both need something to compare
+against; deploy (`public/`'s symlink) doesn't exist yet (T23), so `UrlSchemeGuard` persists a
+snapshot to `var/last-build-meta.json` (never served — build-internal bookkeeping, not a
+release artifact) after every successful non-dry-run build, and `PageCountGuard` reads the
+most recent existing directory under `paths.releases`. Both are written to switch to whatever
+T23 actually deploys without changing their own contracts.
 
 **T23 acceptance:** the swap is atomic — a loop requesting a page during a deploy never sees a
 404 or a partial page. Rollback restores the previous release and is verified by a request.

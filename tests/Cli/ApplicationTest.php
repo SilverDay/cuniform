@@ -66,6 +66,11 @@ final class ApplicationTest extends TestCase
         self::assertSame(0, $this->app()->run(['build', '--full']));
     }
 
+    public function testAllowUrlSchemeChangeFlagIsAccepted(): void
+    {
+        self::assertSame(0, $this->app()->run(['build', '--dry-run', '--allow-url-scheme-change']));
+    }
+
     public function testBuildFailureFromAMissingConfigIsReportedNotFatal(): void
     {
         unlink($this->projectRoot . '/config/site.php');

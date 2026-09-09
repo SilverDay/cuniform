@@ -27,14 +27,16 @@ final class ConfigFixture
         string $notify = 'a@example.com',
         int $searchIndexWarnBytes = 750 * 1024,
         int $feedItems = 20,
+        ?string $defaultLanguage = null,
+        UrlPrefix $urlPrefix = UrlPrefix::Always,
     ): Config {
         return new Config(
             baseUrl: $baseUrl,
             title: 'SilverDay',
             timezone: 'Europe/Berlin',
             languages: $languages,
-            defaultLanguage: $languages[0],
-            urlPrefix: UrlPrefix::Always,
+            defaultLanguage: $defaultLanguage ?? $languages[0],
+            urlPrefix: $urlPrefix,
             permalink: '/{slug}/',
             postsPerPage: 10,
             feedItems: $feedItems,

@@ -13,15 +13,18 @@ use Cuniform\I18n\UiStringCatalogue;
 use Cuniform\Template\TemplateResolver;
 
 /**
- * Orchestrates stages 1-7 (SPEC §10.1: Lock, Discover, Parse, Resolve,
+ * Orchestrates stages 1-8 (SPEC §10.1: Lock, Discover, Parse, Resolve,
  * Render, Template, Emit — feeds/sitemap/search-index/robots/security.txt/
  * assets via ArtifactStage, T20; the compiled redirects.conf via
- * RedirectMapCompiler/RedirectMapGenerator, T21 — both are stage 7's job
- * per §10.1's own listing, split into separate classes only along
- * BUILD-ORDER's task boundary). Stages 8-9 — Verify and the atomic deploy —
- * are T22-T23 and do not happen here: a real (non-dry-run) build writes a
- * complete release tree under `paths.releases/<timestamp>/`, but never
- * touches `public/`.
+ * RedirectMapCompiler/RedirectMapGenerator, T21; media copying and Verify
+ * via MediaCopier/BuildVerifier, T22 — Emit and redirect compilation are
+ * both stage 7's job per §10.1's own listing, split into separate classes
+ * only along BUILD-ORDER's task boundary). Verify runs whether or not
+ * `--dry-run` was given — a dry run's whole point is telling you whether a
+ * real build *would* succeed. Stage 9 — the atomic deploy — is T23 and
+ * does not happen here: a real (non-dry-run) build writes a complete
+ * release tree under `paths.releases/<timestamp>/`, but never touches
+ * `public/`.
  */
 final class BuildPipeline
 {
@@ -98,9 +101,28 @@ final class BuildPipeline
         // build() with zero filesystem side effects (SPEC §9 rule 6).
         $pages = $templateStage->build($site, $renderedByIdentifier);
 
-        $warnings = [...$site->warnings, ...$artifacts['warnings'], ...$redirects['warnings']];
+        $allFiles    = [...$artifacts['files'], $redirectsFile];
+        $mediaCopier = new MediaCopier($this->config->paths->content);
+        $mediaPaths  = $mediaCopier->list();
 
-        $releaseDir = $options->dryRun ? null : $this->writeRelease($pages, [...$artifacts['files'], $redirectsFile]);
+        $urlSchemeMetaPath = rtrim($this->config->paths->var, '/') . '/last-build-meta.json';
+        $verifier          = new BuildVerifier($this->config, $this->config->paths->releases, $urlSchemeMetaPath);
+
+        // Verify runs against everything already built in memory, before a
+        // single byte is written — a failing condition here leaves the
+        // filesystem exactly as it was before this build started.
+        $verifyWarnings = $verifier->verify($pages, $allFiles, $mediaPaths, $redirects['entries'], $options->allowUrlSchemeChange);
+
+        $warnings = [...$site->warnings, ...$artifacts['warnings'], ...$redirects['warnings'], ...$verifyWarnings];
+
+        $releaseDir = null;
+        if (!$options->dryRun) {
+            $releaseDir = $this->writeRelease($pages, $allFiles);
+            $mediaCopier->copyInto($releaseDir);
+            // Only a build that actually wrote a release becomes the new
+            // baseline the next build's UrlSchemeGuard compares against.
+            (new UrlSchemeGuard($urlSchemeMetaPath))->persist($this->config);
+        }
 
         return new BuildResult(count($site->documents), count($pages), $warnings, $releaseDir);
     }

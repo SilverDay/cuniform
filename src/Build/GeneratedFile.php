@@ -25,8 +25,6 @@ final class GeneratedFile
      */
     public function relativeFilePath(): string
     {
-        $trimmed = trim($this->routePath, '/');
-
-        return $trimmed === '' ? 'index.html' : "{$trimmed}/index.html";
+        return RoutePathResolver::toReleaseFilePath($this->routePath);
     }
 }
