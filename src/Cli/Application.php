@@ -15,6 +15,8 @@ use Cuniform\Cutover\LegacyUrlCrawler;
 use Cuniform\Cutover\StreamHttpFetcher;
 use Cuniform\Cutover\UrlInventoryWriter;
 use Cuniform\Import\ImportedDocumentWriter;
+use Cuniform\Import\ImportReport;
+use Cuniform\Import\ImportVerifier;
 use Cuniform\Import\WxrImporter;
 use Cuniform\Import\WxrReader;
 
@@ -39,11 +41,14 @@ use Cuniform\Import\WxrReader;
  * to swap. Safe to run any number of times — a no-op once `public/` is
  * already a symlink.
  *
- * `import-wxr` (T34-37, SPEC Appendix A) reads a WordPress export and
+ * `import-wxr` (T34-38, SPEC Appendix A) reads a WordPress export and
  * writes candidate Cuniform documents to a staging directory
  * (`var/import/` by default) — never into `content/` directly. SPEC
  * §A.5's manual review happens between "imported" and "shipped"; this
- * command only does the first half.
+ * command only does the first half. `ImportVerifier` (T38, SPEC §A.4)
+ * runs before anything is written — a hard failure there (e.g. two items
+ * colliding on the same output path) means nothing is staged at all,
+ * rather than half an import landing on disk.
  */
 final class Application
 {
@@ -221,6 +226,7 @@ final class Application
         try {
             $wxr    = (new WxrReader())->parse($path);
             $result = (new WxrImporter($config->defaultLanguage))->import($wxr);
+            $report = (new ImportVerifier())->verify($wxr, $result);
             (new ImportedDocumentWriter())->write($result['documents'], $outputDir);
         } catch (CuniformException $e) {
             fwrite(STDERR, "cuniform: import-wxr failed\n{$e->getMessage()}\n");
@@ -236,7 +242,48 @@ final class Application
         fwrite(STDOUT, "cuniform: staged for review (SPEC §A.5) — not written to content/. "
             . "Review each document, then copy the ones you keep into content/posts/{$config->defaultLanguage}/.\n");
 
+        $this->printMigrationReport($report);
+
         return 0;
+    }
+
+    /**
+     * SPEC §A.4's migration report. Items already surfaced above as
+     * `cuniform: warning: ...` lines (everything `WxrImporter` itself
+     * produced) aren't repeated here — only what `ImportVerifier` finds
+     * that the importer's own warnings don't already cover: the
+     * per-status tally, unresolved legacy URLs, and word-count outliers.
+     */
+    private function printMigrationReport(ImportReport $report): void
+    {
+        $statusCounts = implode(', ', array_map(
+            static fn (string $status, int $count): string => "{$status}={$count}",
+            array_keys($report->countsByStatus),
+            $report->countsByStatus,
+        ));
+        fwrite(STDOUT, "cuniform: {$report->totalItems} WXR items, {$report->importedCount} imported"
+            . ($statusCounts === '' ? '' : " ({$statusCounts})") . "\n");
+
+        foreach ($report->unresolvedLegacyUrls as $unresolved) {
+            fwrite(STDERR, "cuniform: warning: {$unresolved}\n");
+        }
+
+        foreach ($report->wordCountOutliers as $outlier) {
+            fwrite(STDERR, "cuniform: warning: {$outlier}\n");
+        }
+
+        fwrite(STDOUT, sprintf(
+            'cuniform: report: %d unknown shortcode(s), %d unsupported construct(s), '
+                . "%d item(s) needing a manual decision, %d other notice(s)\n",
+            count($report->unknownShortcodes),
+            count($report->unsupportedConstructs),
+            count($report->manualDecisionItems),
+            count($report->otherNotices),
+        ));
+
+        fwrite(STDOUT, $report->isClean()
+            ? "cuniform: report is clean (SPEC §A.4) — nothing left here to review\n"
+            : "cuniform: report is not clean (SPEC §A.4) — re-run once the items above are addressed\n");
     }
 
     private function setupPublic(): int

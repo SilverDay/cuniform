@@ -194,6 +194,19 @@ final class ApplicationTest extends TestCase
         self::assertFileExists($outputDir . '/posts/en/2020/2020-01-15-a-published-post.md');
     }
 
+    public function testImportWxrFailsAndWritesNothingWhenTwoItemsCollideOnTheSameOutputPath(): void
+    {
+        $exportPath = __DIR__ . '/../fixtures/Import/colliding.xml';
+        $outputDir  = $this->projectRoot . '/custom-staging';
+
+        self::assertSame(1, $this->app()->run(['import-wxr', $exportPath, "--output-dir={$outputDir}"]));
+
+        // T38's own hard-failure check (ImportVerifier) runs before
+        // ImportedDocumentWriter — a collision means nothing is staged at
+        // all, not one of the two colliding documents silently winning.
+        self::assertDirectoryDoesNotExist($outputDir);
+    }
+
     private function app(): Application
     {
         return new Application($this->projectRoot);

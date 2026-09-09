@@ -277,17 +277,12 @@ final class WxrImporter
      */
     private function buildAliases(WxrItem $item): array
     {
-        $path  = parse_url($item->link, \PHP_URL_PATH);
-        $query = parse_url($item->link, \PHP_URL_QUERY);
-
         // A query-string permalink (?p=123) never had a real indexed path
         // — nothing to redirect from. Only a genuine path-based old URL
         // (WordPress's pretty permalinks) becomes an alias.
-        if (!is_string($path) || $path === '' || $path === '/' || is_string($query)) {
-            return [];
-        }
+        $path = LegacyPermalink::realPathOf($item->link);
 
-        return [rtrim($path, '/') . '/'];
+        return $path === null ? [] : [$path];
     }
 
     private function relativePath(string $slug, \DateTimeImmutable $date): string

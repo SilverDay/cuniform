@@ -545,7 +545,7 @@ correct and needs no change.
 | T35 | [x] | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34 | §A.3 |
 | T36 | [ ] | Media downloader with host allow-list and checksums | T34 | §A.3 |
 | T37 | [x] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
-| T38 | [ ] | Verification: count reconciliation, URL diff, word-count tolerance, migration report | T37 | §A.4 |
+| T38 | [x] | Verification: count reconciliation, URL diff, word-count tolerance, migration report | T37 | §A.4 |
 | T39 | [ ] | Manual review tracking file and checklist workflow | T38 | §A.5 |
 
 **T34 note:** SPEC §A.2's own pre-work checklist was run against the operator's real export
@@ -726,6 +726,76 @@ readability reason T35's tests do.
 
 **T38 acceptance:** the import is idempotent — running it twice against the same export
 produces identical output. Any count delta between export and generated files is a hard failure.
+
+**T38 note:** three new pieces in `src/Import/` — `ImportVerifier` (the orchestrator),
+`ImportReport` (its output — a value object with one field per §A.4 report category), and
+`LegacyPermalink` (a one-method class pulled out of `WxrImporter::buildAliases()` once
+`ImportVerifier` needed the identical "is this a real pretty-permalink path" rule for its own
+URL diff — kept single-sourced rather than duplicated, since the two checks silently drifting
+apart on what counts as a real old URL would be exactly the kind of bug this task exists to
+catch). `bin/cuniform import-wxr` now runs `ImportVerifier::verify()` between import and
+write — a hard failure blocks the write entirely, so nothing partial ever lands in the staging
+directory — and prints a migration-report summary after its existing warning lines.
+
+**What "count reconciliation... any delta is a hard failure" turned out to mean here**, since
+this pipeline has no second, external system to reconcile the WXR file against (SPEC §A.4's
+own wording assumes one — a live CMS to query — that this migration doesn't have): `WxrImporter`
+already accounts for every item it reads by construction (each loop iteration either appends
+one document or takes an early `continue`, nothing in between), so re-deriving that accounting
+a second time here would only risk a second copy of its status/slug/date rules quietly drifting
+from the first. The one place a real count delta can still happen despite that construction is
+two *different* items resolving to the same output file path — a slug+date collision, which
+`ImportedDocumentWriter` would silently resolve by one document overwriting the other on disk.
+`ImportVerifier` catches exactly this (`findDuplicateOutputPaths()`) and throws before anything
+is written — the literal reading of T38's own acceptance wording, "generated *files*," not just
+documents in memory. Nothing in the real six-item export triggers it; a synthetic fixture
+(`tests/fixtures/Import/colliding.xml`, two items sharing a slug and calendar day) exercises it
+directly, both at the `ImportVerifier` level and through the CLI (confirming the staging
+directory is never even created on a hard failure, not partially populated).
+
+**URL diff**, adapted to this migration's own §15.5 resolution: SPEC §A.4 says "URL diff between
+the old sitemap and the built site," but there is no old sitemap — the live site is down (§19
+item 4) — and no built site yet either (imported documents are staged, not shipped, until
+manual review). The adaptation: every `post`/`page` item with a real pretty-permalink path that
+did **not** get imported (a `page` item, SPEC §5.4's invalid-slug skip, `private` status, ...)
+is surfaced as an unresolved legacy URL — a path that will have no redirect once review is
+done, worth a human decision rather than a silent loss. An item that *was* imported already
+carries its own `aliases` entry (T37) and needs no separate check here; `BuildVerifier` (T22)
+independently confirms every alias actually resolves once a real build runs over `content/`,
+which is a different, later check this task doesn't duplicate.
+
+**Word-count tolerance** compares each imported item's original `content:encoded` (HTML
+stripped) against its own converted Markdown body — recovered via the real
+`Cuniform\Content\FrontMatter\FrontMatterParser`, the same one T37 already validated against,
+rather than re-deriving front-matter-stripping logic a second time. The tolerance itself (20%)
+is unspecified by SPEC ("with a tolerance," no number given) — a documented judgment call, the
+same kind T17/T37 already established a pattern for: wide enough to absorb ordinary conversion
+noise (a caption folded into alt text, a dropped decorative `<span>`), tight enough to still
+catch a post that lost most of its content in conversion. `footnotes` and `failedMediaDownloads`
+are real fields on `ImportReport`, always empty in this implementation — not omitted, since
+SPEC §A.4 names both explicitly: no footnote-specific detection is built (a footnote plugin's
+shortcode would still surface generically under `unknownShortcodes`), and T36 (media
+downloader) isn't built yet, so there's nothing to attempt a download with, let alone fail one.
+
+Validated against the operator's real export, the same way T34/T35/T37 were: `ImportVerifier`
+completes with zero hard failures against the real six-item corpus (source IDs 10, 11, 15, 35,
+66, 180 — no output-path collisions). `countsByStatus` shows 4 `publish` + 2 `draft`, matching
+T34's own pre-work note. Every §A.4-named bucket is empty except `otherNotices`, which holds
+exactly one entry — `post_id=180`'s already-known empty-`post_name` fallback warning (T37) —
+confirming this task surfaces nothing new the prior tasks hadn't already found and explained.
+None of this real-corpus content is committed; `ImportVerifierTest` builds small in-memory
+`WxrItem`s directly, matching T35/T37's own test style, including its own collision case.
+`tests/fixtures/Import/colliding.xml` is a separate, small synthetic fixture used only at the
+CLI level (`ApplicationTest`) — confirming the *end-to-end* command, not just `ImportVerifier`
+in isolation, refuses to stage anything when two real WXR items collide.
+
+**Idempotency** (T38's other named acceptance criterion) needed no new code — nothing in
+`src/Import/` reads the clock, generates a random value, or carries any other hidden state
+between calls, confirmed by inspection (`grep` for `time()`/`uniqid`/`rand`/`random_` across
+`src/Import/` turns up nothing) rather than assumed. `ImportVerifierTest`'s own
+`testRunningTheImportTwiceOnTheSameExportProducesByteIdenticalDocuments` runs `WxrImporter`
+twice against the same in-memory export and asserts every resulting document's path, contents,
+and source ID are identical byte-for-byte, plus the warnings list itself.
 
 ---
 

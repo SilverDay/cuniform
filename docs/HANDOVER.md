@@ -1,91 +1,87 @@
-# Session Handover — 2026-09-09 (T37)
+# Session Handover — 2026-09-09 (T38)
 
 Point-in-time snapshot for picking this work back up, written at the end of a session that
-implemented T37 (front matter emission, verbatim slugs, redirect generation) on top of T1-T36
-— except T36, deliberately skipped in sequence at the operator's own direction (their real
-export has zero media references, so there was nothing to validate a media downloader
-against; T37 was checkable against real data instead). M1-M3 fully done; M4: T25 done, T26 not
-applicable, T27 deliverables done (checkbox open pending live verification); M6: T34, T35, T37
-done, T36/T38/T39 still open. `docs/SPEC.md` and `docs/BUILD-ORDER.md` remain authoritative —
-this file explains the *why* behind decisions those documents don't fully capture, and what to
-do next. Safe to delete once it goes stale.
+implemented T38 (verification: count reconciliation, URL diff, word-count tolerance, migration
+report) on top of T1-T37 — T36 (media downloader) remains deliberately skipped in sequence, at
+the operator's own direction, since the real export has no media to validate a downloader
+against. M1-M3 fully done; M4: T25 done, T26 not applicable, T27 deliverables done (checkbox
+open pending live verification); M6: T34, T35, T37, T38 done, T36/T39 still open. `docs/SPEC.md`
+and `docs/BUILD-ORDER.md` remain authoritative — this file explains the *why* behind decisions
+those documents don't fully capture, and what to do next. Safe to delete once it goes stale.
 
 ## Current state
 
-- `make check` is green: 617 tests, 1221 assertions, PHPStan level 8, PSR-12 + escaping lint.
-- New in `src/Import/`: `FrontMatterEmitter`, `WxrImporter`, `ImportedDocumentWriter` — the
-  first code in this repo that *writes* front matter rather than only parsing it.
-- New CLI command: `bin/cuniform import-wxr <path-to-export.xml> [--output-dir=<path>]` —
-  reads a WXR file, converts every eligible item, and writes candidate documents to
-  `var/import/` by default. **Never writes into `content/`** — see decision 1 below.
-- All six of the operator's real posts run all the way through `WxrImporter` and the resulting
-  front matter parses cleanly through the *actual* `FrontMatterParser` (T4) with zero errors —
-  one real warning fires (a draft with an empty WXR `post_name`, handled by the documented
-  title-derived-slug fallback).
+- `make check` is green: 632 tests, 1271 assertions, PHPStan level 8, PSR-12 + escaping lint.
+- New in `src/Import/`: `ImportVerifier`, `ImportReport`, `LegacyPermalink`. `WxrImporter`
+  itself is unchanged except that its `buildAliases()` now calls `LegacyPermalink::realPathOf()`
+  instead of inlining the same `parse_url()` logic — a pure refactor, same behavior, confirmed
+  by the full existing `WxrImporterTest` suite still passing unmodified.
+- `bin/cuniform import-wxr` now runs `ImportVerifier::verify()` between import and write. A hard
+  failure (see decision 1) blocks the write entirely — nothing partial ever lands in the staging
+  directory — and a migration-report summary prints after the existing warning lines.
+- Validated against the operator's real six-item export: zero hard failures, `countsByStatus`
+  = 4 `publish` + 2 `draft` (matches T34's pre-work), every §A.4-named report bucket empty
+  except `otherNotices` holding exactly the one already-known item (T37's `post_id=180`
+  empty-slug fallback) — T38 surfaced nothing new the earlier tasks hadn't already found.
 
 ## Decisions made this session that a future reader should know about
 
-1. **`import-wxr` stages output in `var/import/`, never writes into `content/` directly.**
-   SPEC §A.5 requires every imported document to be reviewed before it ships — writing
-   straight into `content/posts/` would make a freshly imported document visible to the very
-   next `bin/cuniform build` with no review step in between, which is exactly the gap §A.5
-   exists to close. Promoting a reviewed document into `content/` is left as the operator's own
-   deliberate action (copy the file over); nothing in this session builds a "promote" command.
-2. **Posts only, this pass — `page` items are recognized and reported, not silently dropped,
-   but not yet converted.** Same reasoning as T35's table-support deferral: the real export has
-   no `page` items (T34's own pre-work: 6 items, all `post_type=post`), so building a
-   page-import path now would be exercising code against nothing real. `WxrImporter`'s own
-   docblock names this as the thing to revisit once an export actually has one.
-3. **Redirect generation is scoped to exactly what BUILD-ORDER's own T37 line names: "for
-   every document."** Each qualifying item's old WordPress path (from `wp:link`, when it was a
-   real pretty-permalink path rather than a `?p=123` query string) becomes that document's own
-   `aliases` front matter entry — and that's the *entire* mechanism. `RedirectMapCompiler`
-   (T21, already built) already turns a document's `aliases` into a compiled redirect at build
-   time, so nothing new had to be built for the per-document case at all, just correct front
-   matter. The *broader* redirects SPEC §A.3 mentions in the same breath — category/tag
-   archives, feeds, date archives — are explicitly out of scope: they aren't tied to any one
-   document, and Cuniform has no "category" concept to map WordPress's onto in the first place
-   (see the next point). Flagged as deliberately deferred, not silently skipped.
-4. **WordPress categories and tags are merged into one flat, deduplicated `tags` list** —
-   a documented judgment call, not a SPEC requirement (same pattern T17 already established:
-   flag it, don't silently decide). Cuniform's content model has no separate "category"
-   concept, and the real export's own categories (general, webdesign, virtual-worlds, ...) read
-   as broad topical tags in practice, which is what makes this reasonable rather than merely
-   convenient. Worth a second look if a future export's categories are more clearly
-   hierarchical than this one's.
-5. **`FrontMatterEmitter`'s escaping was verified against the real parser, not derived from
-   documentation.** A quick empirical check confirmed `str_replace(['\\','"'], ['\\\\','\\"'],
-   $value)` round-trips correctly through `RestrictedYamlParser`'s own decoder for values
-   containing quotes, backslashes, or both together — kept as `FrontMatterEmitterTest`'s
-   `roundTrippableValues()` data set rather than a one-time manual check.
-6. **`date` prefers `wp:post_date_gmt` (explicit UTC offset, unambiguous), falling back to
-   `pubDate`only when the GMT field is invalid** (WordPress's own `0000-00-00 00:00:00`
-   sentinel for "never really set," which the real export's own item 180 — id, not
-   coincidence — actually has). The fallback is reported, not silent, same as the empty-slug
-   case. `updated` is only emitted when `post_modified_gmt` falls on a different *day* than
-   `date` — WordPress touches `post_modified` on every save, including trivial internal ones,
-   and a same-day stamp would just be noise on top of `date` rather than a genuine
-   "revised later" signal.
+1. **"Count reconciliation... any delta is a hard failure" (§A.4) is scoped to output-path
+   collisions, not a re-derivation of `WxrImporter`'s own partition logic.** SPEC's wording
+   assumes a second, external system to reconcile against — this migration doesn't have one;
+   the WXR file is the only source of truth, and `WxrImporter` already accounts for every item
+   it reads by construction (each loop iteration either appends one document or takes an early
+   `continue`). Re-deriving that accounting a second time in `ImportVerifier` would only risk a
+   second copy of the same status/slug/date rules silently drifting from the first. The one
+   place a genuine count delta can still occur is two *different* items resolving to the same
+   output file path (a slug+date collision) — `ImportedDocumentWriter` writes by path, so a
+   collision silently overwrites one document with another. `ImportVerifier` catches exactly
+   this and throws (`ImportException`) before anything is written; `tests/fixtures/Import/
+   colliding.xml` exercises it end-to-end through the CLI.
+2. **"URL diff between the old sitemap and the built site" is adapted to this migration's own
+   cutover reality** — there's no old sitemap (the live site is down, §19 item 4) and no built
+   site yet either (imports are staged, not shipped). The adapted check: every `post`/`page`
+   item with a real pretty-permalink that did *not* get imported is surfaced as an unresolved
+   legacy URL — worth a human decision before it's silently lost, rather than nothing. An
+   imported item is out of scope here; it already carries its own alias (T37), and whether that
+   alias actually resolves is `BuildVerifier`'s (T22) job once a real build runs, not this one's.
+3. **Word-count tolerance is 20%, a documented judgment call** (SPEC names no number). Original
+   word count comes from `content:encoded` stripped of tags; converted word count comes from
+   the imported document's own body, recovered via the real `FrontMatterParser` (T4/T37) rather
+   than re-deriving front-matter-stripping logic. Wide enough to absorb normal conversion noise,
+   tight enough to catch a post that lost most of its content.
+4. **`footnotes` and `failedMediaDownloads` are real, always-empty fields on `ImportReport`, not
+   omitted** — SPEC §A.4 names both explicitly, so the fields exist for forward compatibility:
+   no footnote-specific detection exists (a footnote plugin's shortcode would still surface
+   generically under `unknownShortcodes`), and T36 (media downloader) isn't built, so there's
+   nothing to attempt a download with, let alone fail one.
+5. **`LegacyPermalink` was pulled out of `WxrImporter::buildAliases()`** once `ImportVerifier`
+   needed the identical "is this a real pretty-permalink path, not a `?p=123` query string" rule
+   for its own URL diff. Kept single-sourced rather than duplicated — the two checks silently
+   drifting apart on what counts as a real old URL would be exactly the kind of bug T38 exists
+   to catch in the first place.
+6. **Idempotency needed no new code**, only a test proving it: nothing in `src/Import/` reads
+   the clock or generates randomness (confirmed by `grep`, not assumed).
+   `ImportVerifierTest::testRunningTheImportTwiceOnTheSameExportProducesByteIdenticalDocuments`
+   runs `WxrImporter` twice against the same in-memory export and asserts byte-identical output.
 
 ## What's still deferred and why
 
 - T36 (media downloader) — skipped in task order at the operator's own direction; still needed
   as a general capability (SPEC §A.3), but has nothing real to validate against in this export.
-- T38 (verification: count reconciliation, URL diff, word-count tolerance, migration report),
-  T39 (manual review tracking file and checklist workflow) — neither built yet.
-- Page import (point 2 above).
-- The broader category/tag-archive/feed/date-archive redirect generation (point 3 above).
-- The bracket/Markdown-character escaping gap T35 already documented — unchanged this session,
-  still inert (not present in the real export).
+- T39 (manual review tracking file and checklist workflow) — not built yet; it's the natural
+  next step now that T38 gives it a clean report to work from.
+- Page import, the broader category/tag-archive/feed/date-archive redirect generation, and the
+  bracket/Markdown-character escaping gap — all T35/T37 decisions, unchanged this session.
 
 ## Recommended next step
 
-**T38** (verification: count reconciliation, URL diff, word-count tolerance, migration report)
-is next in M6's sequence and is directly checkable against the real corpus the same way
-T34/T35/T37 were — "count reconciliation" in particular has an exact, known-good answer to
-check against right now: 6 WXR items in, 2 skipped by design this session (`page`,
-`attachment`), leaving a specific expected document count `WxrImporter` should always produce
-for this export. **T36** (media downloader) remains the one task in this milestone with no real
-data to validate against — worth building whenever it's convenient, but not blocking anything
-else in M6, and the operator may want to revisit whether it's worth prioritizing at all given
-the real export's own lack of media.
+**T39** (manual review tracking file and checklist workflow, SPEC §A.5) is the natural next
+step — it's the last M6 task before the import pipeline is genuinely done, and it has a
+concrete, real target to build against: six real `source_id`s (10, 11, 15, 35, 66, 180) that a
+review-tracking file needs to carry checkboxes for. §A.5 itself gives the checklist contents
+almost verbatim (shortcode attribute provenance, external link targets, leftover verbatim
+shortcodes, tracking pixels, "worth keeping" — five per-document checks), so this is mostly a
+translation task, not a design one. **T36** (media downloader) remains the one task in this
+milestone with no real data to validate against — worth building whenever convenient, not
+blocking anything else in M6.
