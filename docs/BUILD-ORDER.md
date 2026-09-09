@@ -435,6 +435,60 @@ failure.
 running a build during the challenge window. The per-language 404 fires inside each prefix and
 the neutral 404 fires outside them.
 
+**T27 status — deliverables complete, acceptance criterion not verifiable from here, status
+left `[ ]` on purpose.** Every artifact SPEC §3.2/§10.5/§15.1 call for is built:
+
+- `deploy/apache/blog.silverday.de.conf` — the vhost, including SPEC §3.2's skeleton
+  transcribed faithfully (both `<Directory>` blocks, the root 302, per-language/neutral
+  `ErrorDocument` mapping, the `/admin` FPM proxy), plus a port-80 vhost this file adds beyond
+  SPEC's own block — SPEC's skeleton only shows :443, but Let's Encrypt's standard HTTP-01
+  challenge validates over plain HTTP, so "ACME renewal succeeds" isn't achievable via the
+  standard method without it — and the response headers §14.1 (CSP — no hash needed, T17's
+  templates ship zero inline scripts) and §14.2 (HSTS, nosniff, etc.) call for, which no
+  earlier task had a vhost file to put them in.
+- `deploy/systemd/cuniform-build.service` + `.path` + `.timer` — the build-consumer unit
+  (§10.5's "a separate unit consumes" half of the admin/build privilege boundary) shared by
+  both triggers: `.path` watches `var/build-requested` (a convention this task defines, since
+  nothing wrote to one before it — T32, "Build enqueue via request file," is what makes the
+  admin app actually write it later) and `.timer` fires every 15 minutes for scheduled posts.
+- `deploy/git/post-receive` — the git-push trigger (§10.5, and §12's "sole authoring path in
+  P1"). Relies on `receive.denyCurrentBranch updateInstead` (documented in the hook's own
+  header) rather than the hook doing its own `git checkout -f`, specifically so this composes
+  cleanly with P2's admin app later committing to the *same* working tree directly (§12 Path
+  B) instead of needing two reconciled checkouts.
+- `bin/cuniform setup-public` (`PublicDirectorySetup`, tested) — the one-time `public/`
+  provisioning step (§10.4, §3.3): an empty real directory is removed (the next build creates
+  the symlink); a non-empty one is *moved aside*, never deleted, since deciding what happens to
+  real content there is the still-open §15.5 cutover decision, not something this tool should
+  guess. Confirmed directly relevant: this checkout's own `public/` is right now exactly that
+  case — a real, non-empty, differently-owned directory from hosting provisioning — left
+  untouched rather than run against, since that's a live operational action outside what this
+  session should do unasked.
+
+What's verified, and how, given this session has no live domain, no DNS control, and no
+running Apache/systemd instance bound to `blog.silverday.de`:
+
+- `apache2ctl -t` against the vhost file (loaded into a scratch config pulling in the real
+  system's mod_rewrite/mod_headers/mod_alias/mod_proxy_fcgi/mod_ssl, all present on this host)
+  returns `Syntax OK`.
+- `systemd-analyze verify` against all three unit files returns clean, exit 0 — this also
+  confirms `ExecStart`'s binaries (`/usr/bin/php`, `/bin/rm`) actually resolve.
+- `sh -n` on the post-receive hook confirms shell syntax.
+- `PublicDirectorySetupTest`/`ApplicationTest`'s `setup-public` cases cover all four states
+  (already a symlink, doesn't exist, empty real directory, non-empty real directory) the normal
+  way — `make check`.
+
+None of that reaches the acceptance criterion's actual claim: a real ACME renewal succeeding
+against a real certificate authority while a real build runs during the validation window. That
+needs a live host with a public DNS record and a running certbot — categorically not something
+this environment can produce, unlike, say, T23's atomicity claim, which a local `proc_open`
+loop against a real filesystem could faithfully reproduce. Per this project's own rule ("do not
+mark a task done until its acceptance criteria pass"), the honest status is: ready to deploy,
+not yet operationally verified. Flip T27 to `[x]` once that's actually been done against the
+real host — the per-language/neutral 404 half of the criterion is mechanically re-checkable at
+that point too (`curl -I https://blog.silverday.de/de/does-not-exist/` should come back 404 via
+`/de/404.html`, and something outside any prefix via the neutral `/404.html`).
+
 ---
 
 ## M5 — Admin

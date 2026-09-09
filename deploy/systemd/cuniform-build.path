@@ -1,0 +1,24 @@
+# Admin-publish trigger (SPEC §10.5: "Admin writes a request file; a
+# systemd path unit runs the build as the build user"). The admin app
+# itself (P2, T29-33 — not built yet) writes var/build-requested when a
+# publish action needs a rebuild; T32 ("Build enqueue via request file,
+# consumed by the systemd unit") is what makes that write actually happen.
+# This unit is the consuming half, built now so T32 has something defined
+# to write to rather than inventing the convention itself later.
+#
+# PathExists (not PathChanged/PathModified): the admin process only needs
+# to *create* the file — cuniform-build.service's own ExecStartPre removes
+# it before each run, so re-creation is what re-arms this trigger, and a
+# plain existence check is simplest for that write-then-consume protocol.
+#
+# Install: symlink into /etc/systemd/system/, `systemctl daemon-reload`,
+# `systemctl enable --now cuniform-build.path`.
+[Unit]
+Description=Watch for an enqueued Cuniform build request (SPEC section 10.5)
+
+[Path]
+PathExists=/srv/vhosts/blog.silverday.de/var/build-requested
+Unit=cuniform-build.service
+
+[Install]
+WantedBy=multi-user.target

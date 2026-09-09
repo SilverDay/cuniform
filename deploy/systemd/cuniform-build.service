@@ -1,0 +1,50 @@
+# Shared build-consumer unit (SPEC §10.5) — triggered by either
+# cuniform-build.path (admin publish, T32's own eventual job: writing the
+# request file this unit consumes) or cuniform-scheduled-build.timer
+# (scheduled posts). Never triggered by the admin PHP process directly —
+# "the admin PHP process never executes the build directly. It enqueues; a
+# separate unit consumes" (SPEC §10.5) — this unit, and only this unit, is
+# the "consumes" half, running as cuniform-build (SPEC §15.1: owns
+# content/, releases/, var/, and the public symlink), never as cuniform-web
+# (the FPM pool user).
+#
+# Install: symlink into /etc/systemd/system/, then `systemctl daemon-reload`.
+# Not `systemctl enable`d itself — it's only ever pulled in by the .path or
+# .timer unit that wants a build to happen (Manual: `bin/cuniform build`
+# directly needs no unit at all, SPEC §10.5's own "Manual" trigger row).
+[Unit]
+Description=Cuniform build (SPEC section 10.5)
+After=network.target
+
+[Service]
+Type=oneshot
+User=cuniform-build
+Group=cuniform-build
+WorkingDirectory=/srv/vhosts/blog.silverday.de
+
+# Clears the admin-enqueued request *before* building: a request written
+# again while this build is already running must still trigger the .path
+# unit a second time once this run exits, which only happens if the file
+# it's watching is gone by the time this unit starts and reappears after.
+# Scheduled-post timer runs never touch this file, so this is always safe.
+ExecStartPre=/bin/rm -f /srv/vhosts/blog.silverday.de/var/build-requested
+ExecStart=/usr/bin/php /srv/vhosts/blog.silverday.de/bin/cuniform build
+
+StandardOutput=append:/srv/vhosts/blog.silverday.de/var/log/build.log
+StandardError=append:/srv/vhosts/blog.silverday.de/var/log/build.log
+
+# Defence in depth, on top of — not instead of — the cuniform-build/
+# cuniform-web Unix user split (SPEC §15.1), which is the actual
+# enforcement boundary: cuniform-build owns content/, releases/, var/,
+# and the public symlink, so a stray write attempt elsewhere in the vhost
+# root fails on ordinary Unix permissions regardless of this section.
+# ProtectSystem=strict's job is the rest of the host filesystem —
+# ReadWritePaths has to name the whole vhost root, not just releases/
+# var/public individually, because swapping the public symlink (T23's
+# ReleaseDeployer) creates and renames a sibling entry (public.new) in
+# this directory, which needs write access to the *containing* directory,
+# not just the public/ path itself.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/vhosts/blog.silverday.de
+PrivateTmp=true

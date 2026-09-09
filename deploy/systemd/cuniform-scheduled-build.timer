@@ -1,0 +1,22 @@
+# Scheduled-post trigger (SPEC §10.5: "Scheduled posts | systemd timer,
+# every 15 min, no-op when nothing is due"). A `scheduled` post already
+# becomes eligible for inclusion the moment `date` is at or before "now"
+# (SiteResolver::isIncluded(), SPEC §5.6) — nothing else makes time passing
+# trigger a rebuild on its own, which is what this timer is for. "No-op
+# when nothing is due" describes the *outcome*: T24's incremental cache
+# means a run that finds nothing newly due does almost no work and changes
+# nothing, so this can fire on a plain schedule rather than needing its own
+# due-date-checking logic before deciding whether to build at all.
+#
+# Install: symlink into /etc/systemd/system/, `systemctl daemon-reload`,
+# `systemctl enable --now cuniform-scheduled-build.timer`.
+[Unit]
+Description=Periodic Cuniform build for scheduled posts (SPEC section 10.5)
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+Unit=cuniform-build.service
+
+[Install]
+WantedBy=timers.target

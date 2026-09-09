@@ -1,0 +1,36 @@
+#!/bin/sh
+# Git-push trigger (SPEC §10.5: "Git push | post-receive hook on the
+# server"; §12: "Path A — git push. Local edit, commit, push;
+# post-receive validates front matter, runs the build, reports status.
+# Sole authoring path in P1.").
+#
+# One-time server setup this hook depends on, done once when the vhost is
+# provisioned:
+#   1. /srv/vhosts/blog.silverday.de is a normal (non-bare) git checkout,
+#      the same working tree the build reads content/src/templates/config
+#      from — not a separate bare repo the build then has to check out of.
+#      This matters once P2's admin app also commits to this same working
+#      tree directly (SPEC §12, Path B); a separate bare repo would mean
+#      reconciling two different working trees instead of one.
+#   2. `git config receive.denyCurrentBranch updateInstead` (git >= 2.4)
+#      in that checkout — this is what lets `git push` update the
+#      checked-out branch directly, without this hook needing its own
+#      `git checkout -f` step (and without the usual "refusing to update
+#      checked-out branch" error).
+#   3. This file installed as .git/hooks/post-receive (a symlink to this
+#      tracked copy, not a separate untracked copy — so a change here
+#      ships the same way any other engine change does) and executable
+#      (chmod +x).
+#
+# "Validates front matter, runs the build" is one and the same step here:
+# `bin/cuniform build` already collects and reports every Parse/Resolve
+# error before Verify ever runs (SPEC §5.5, §10.3) — a bad push simply
+# fails the build, and nothing deploys. "Reports status" is this script's
+# own stdout/stderr, which git relays back to the pushing client verbatim.
+set -eu
+
+cd /srv/vhosts/blog.silverday.de
+
+# git already updated the working tree for us (receive.denyCurrentBranch
+# updateInstead, above) — this hook's only job is the build.
+/usr/bin/php bin/cuniform build

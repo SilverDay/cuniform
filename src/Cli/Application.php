@@ -7,6 +7,7 @@ namespace Cuniform\Cli;
 use Cuniform\Build\BuildLock;
 use Cuniform\Build\BuildOptions;
 use Cuniform\Build\BuildPipeline;
+use Cuniform\Build\PublicDirectorySetup;
 use Cuniform\Build\ReleaseDeployer;
 use Cuniform\Config\ConfigLoader;
 use Cuniform\CuniformException;
@@ -28,6 +29,12 @@ use Cuniform\Cutover\UrlInventoryWriter;
  * pipeline — a standalone cutover tool that crawls a live site (its
  * sitemap if it has one, a same-host spider otherwise) and writes a URL
  * inventory. Never runs as part of `build`.
+ *
+ * `setup-public` (T27, SPEC §10.4/§3.3) is the one-time host-provisioning
+ * step: a freshly provisioned `public/` is usually a real directory (the
+ * host's own placeholder), not yet the symlink `ReleaseDeployer` expects
+ * to swap. Safe to run any number of times — a no-op once `public/` is
+ * already a symlink.
  */
 final class Application
 {
@@ -60,6 +67,10 @@ final class Application
 
         if ($command === 'legacy-urls') {
             return $this->legacyUrls($arguments);
+        }
+
+        if ($command === 'setup-public') {
+            return $this->setupPublic();
         }
 
         if ($command !== 'build') {
@@ -158,6 +169,22 @@ final class Application
         return 0;
     }
 
+    private function setupPublic(): int
+    {
+        try {
+            $config = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
+            $message = (new PublicDirectorySetup($config->paths->public))->run();
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: setup-public failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        fwrite(STDOUT, "cuniform: {$message}\n");
+
+        return 0;
+    }
+
     private function rollback(): int
     {
         try {
@@ -231,6 +258,7 @@ final class Application
           cuniform build [--full] [--dry-run] [--allow-url-scheme-change]
           cuniform build --rollback
           cuniform legacy-urls <base-url> [--output=<path>] [--max-pages=<n>]
+          cuniform setup-public
 
         TXT;
     }

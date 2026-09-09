@@ -125,6 +125,32 @@ final class ApplicationTest extends TestCase
         self::assertSame(1, $this->app()->run(['legacy-urls', 'https://legacy.test']));
     }
 
+    public function testSetupPublicReportsNothingToDoWhenAlreadyASymlink(): void
+    {
+        mkdir($this->projectRoot . '/releases/20260101000000', 0o755, true);
+        symlink($this->projectRoot . '/releases/20260101000000', $this->projectRoot . '/public');
+
+        self::assertSame(0, $this->app()->run(['setup-public']));
+    }
+
+    public function testSetupPublicMovesANonEmptyRealDirectoryAside(): void
+    {
+        mkdir($this->projectRoot . '/public', 0o755, true);
+        file_put_contents($this->projectRoot . '/public/index.html', 'placeholder');
+
+        self::assertSame(0, $this->app()->run(['setup-public']));
+
+        self::assertFalse(is_dir($this->projectRoot . '/public'));
+        self::assertNotSame([], glob($this->projectRoot . '/public.provisioned-*') ?: []);
+    }
+
+    public function testSetupPublicFailureFromAMissingConfigIsReportedNotFatal(): void
+    {
+        unlink($this->projectRoot . '/config/site.php');
+
+        self::assertSame(1, $this->app()->run(['setup-public']));
+    }
+
     private function app(): Application
     {
         return new Application($this->projectRoot);
