@@ -13,18 +13,19 @@ use Cuniform\I18n\UiStringCatalogue;
 use Cuniform\Template\TemplateResolver;
 
 /**
- * Orchestrates stages 1-8 (SPEC §10.1: Lock, Discover, Parse, Resolve,
+ * Orchestrates stages 1-9 (SPEC §10.1: Lock, Discover, Parse, Resolve,
  * Render, Template, Emit — feeds/sitemap/search-index/robots/security.txt/
  * assets via ArtifactStage, T20; the compiled redirects.conf via
  * RedirectMapCompiler/RedirectMapGenerator, T21; media copying and Verify
- * via MediaCopier/BuildVerifier, T22 — Emit and redirect compilation are
+ * via MediaCopier/BuildVerifier, T22; the atomic deploy and release
+ * pruning via ReleaseDeployer, T23 — Emit and redirect compilation are
  * both stage 7's job per §10.1's own listing, split into separate classes
  * only along BUILD-ORDER's task boundary). Verify runs whether or not
  * `--dry-run` was given — a dry run's whole point is telling you whether a
- * real build *would* succeed. Stage 9 — the atomic deploy — is T23 and
- * does not happen here: a real (non-dry-run) build writes a complete
- * release tree under `paths.releases/<timestamp>/`, but never touches
- * `public/`.
+ * real build *would* succeed. A `--dry-run` build never reaches Deploy: a
+ * real (non-dry-run) build writes a complete release tree under
+ * `paths.releases/<timestamp>/`, verifies it, then atomically swaps
+ * `public/` onto it.
  */
 final class BuildPipeline
 {
@@ -119,8 +120,18 @@ final class BuildPipeline
         if (!$options->dryRun) {
             $releaseDir = $this->writeRelease($pages, $allFiles);
             $mediaCopier->copyInto($releaseDir);
-            // Only a build that actually wrote a release becomes the new
-            // baseline the next build's UrlSchemeGuard compares against.
+
+            $deployer = new ReleaseDeployer(
+                $this->config->paths->public,
+                $this->config->paths->releases,
+                $this->config->build->retainReleases,
+            );
+            $deployer->deploy($releaseDir);
+
+            // Only a build that actually deployed becomes the new baseline
+            // the next build's UrlSchemeGuard compares against — a build
+            // whose deploy step fails must leave the stored baseline
+            // matching whatever is still actually live.
             (new UrlSchemeGuard($urlSchemeMetaPath))->persist($this->config);
         }
 

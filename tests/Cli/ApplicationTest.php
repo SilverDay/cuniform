@@ -44,7 +44,7 @@ final class ApplicationTest extends TestCase
         self::assertSame(2, $this->app()->run(['build', '--bogus']));
     }
 
-    public function testRollbackIsNotYetImplemented(): void
+    public function testRollbackFailsWhenNothingHasBeenDeployedYet(): void
     {
         self::assertSame(1, $this->app()->run(['build', '--rollback']));
     }
@@ -55,10 +55,31 @@ final class ApplicationTest extends TestCase
         self::assertSame([], glob($this->projectRoot . '/releases/*') ?: []);
     }
 
-    public function testPlainBuildSucceedsAndWritesARelease(): void
+    public function testPlainBuildSucceedsWritesAReleaseAndDeploysIt(): void
     {
         self::assertSame(0, $this->app()->run(['build']));
-        self::assertNotSame([], glob($this->projectRoot . '/releases/*') ?: []);
+
+        $releases = glob($this->projectRoot . '/releases/*') ?: [];
+        self::assertNotSame([], $releases);
+        self::assertTrue(is_link($this->projectRoot . '/public'));
+        $target = readlink($this->projectRoot . '/public');
+        self::assertIsString($target);
+        self::assertSame(realpath($releases[0]), realpath($target));
+    }
+
+    public function testRollbackRepointsPublicAtThePreviousRelease(): void
+    {
+        self::assertSame(0, $this->app()->run(['build']));
+        $first = readlink($this->projectRoot . '/public');
+
+        // Guarantee a distinct release timestamp from the first build.
+        sleep(1);
+        self::assertSame(0, $this->app()->run(['build']));
+        $second = readlink($this->projectRoot . '/public');
+        self::assertNotSame($first, $second);
+
+        self::assertSame(0, $this->app()->run(['build', '--rollback']));
+        self::assertSame($first, readlink($this->projectRoot . '/public'));
     }
 
     public function testFullFlagIsAccepted(): void
@@ -137,7 +158,7 @@ final class ApplicationTest extends TestCase
             }
 
             $full = $path . '/' . $item;
-            is_dir($full) ? $this->removeDirectory($full) : unlink($full);
+            is_link($full) || !is_dir($full) ? unlink($full) : $this->removeDirectory($full);
         }
 
         rmdir($path);

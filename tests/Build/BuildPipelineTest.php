@@ -332,7 +332,7 @@ final class BuildPipelineTest extends TestCase
             }
 
             $full = $path . '/' . $item;
-            is_dir($full) ? $this->removeDirectory($full) : unlink($full);
+            is_link($full) || !is_dir($full) ? unlink($full) : $this->removeDirectory($full);
         }
 
         rmdir($path);

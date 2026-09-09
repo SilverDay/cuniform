@@ -118,7 +118,7 @@ than `strftime()` or system locale data (§7.9).
 | T20 | [x] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
 | T21 | [x] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
 | T22 | [x] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
-| T23 | [ ] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
+| T23 | [x] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
 | T24 | [ ] | Incremental build cache and invalidation, including translation-group invalidation | T19 | §10.2 |
 
 **T16 acceptance:** `e`/`eAttr`/`eUrl`/`eJs` are the only four names `make lint`'s
@@ -231,6 +231,42 @@ T23 actually deploys without changing their own contracts.
 
 **T23 acceptance:** the swap is atomic — a loop requesting a page during a deploy never sees a
 404 or a partial page. Rollback restores the previous release and is verified by a request.
+
+**T23 note:** `ReleaseDeployer` does the swap with `symlink()` + `rename()` directly rather than
+shelling out to `mv -T` — `rename()` onto an existing path is the same single filesystem
+operation SPEC §10.4's shown script gets from `mv`, so there's nothing `mv` buys that a syscall
+doesn't already give. Atomicity is verified by
+`ReleaseDeployerTest::testConcurrentReadsDuringRepeatedDeploysNeverSeeAMissingOrPartialPage`,
+which runs a separate PHP process (`proc_open`) reading through the live `public/` symlink in a
+tight loop while the test process deploys back and forth between two releases for a second —
+the closest a single-host test gets to "a loop requesting a page during a deploy", short of an
+actual Apache instance. `UrlSchemeGuard`/`PageCountGuard` (T22) already read from
+`paths.releases` and `var/last-build-meta.json` rather than `public/`'s target, exactly as their
+own T22 notes anticipated — neither needed to change.
+
+One case handled deliberately rather than left to fail with a raw filesystem error: `public/`
+existing as an empty real directory (true of every fixture in this test suite before its first
+deploy, and — per SPEC §10.4's "one-time setup" — of a fresh checkout before its first real
+deploy too) is silently replaced with the symlink, since there's nothing in it to lose. A
+*non-empty* real directory is refused with a message pointing at §10.4/§3.3/§15.5 rather than
+deleted — moving real content out is the cutover-freeze decision T27 (`one-time public symlink
+setup`) actually owns, not something to do unasked at deploy time (this project's own "risky
+action" convention: don't delete what you didn't create without being asked).
+
+Release pruning (`build.retain_releases`, already validated by T2/ConfigLoader and unused until
+now) only ever runs immediately after `deploy()`'s own swap, so the just-deployed release is
+always the newest one and always inside the retained window by construction — an earlier draft
+also special-cased "never prune whatever `public/` currently points at" for a rollback's sake,
+but that branch could never fire (prune always observes the release it just swapped to, not
+whatever was live a moment before) and was removed rather than kept as inert defensive code.
+`rollback()` itself never prunes, so a rollback can still reach a release a *later* deploy will
+go on to prune — `ReleaseDeployerTest::testRollbackNeverPrunesAndCanReachAReleaseOutsideTheRetainWindow`
+covers exactly that ordering.
+
+`bin/cuniform build --rollback` now does real work: it loads config, takes the same `BuildLock`
+a build itself would hold (so a rollback and a concurrent build's deploy can't race), and calls
+`ReleaseDeployer::rollback()`. The CLI's "deploy is not implemented" message is gone; a plain
+build now reports `deployed -> <public path>` once the swap succeeds.
 
 **T24 acceptance:** editing one post rebuilds that post, its list pages, and every page in its
 translation group. Editing a UI string file or a template rebuilds everything.

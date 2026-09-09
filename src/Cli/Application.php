@@ -4,20 +4,22 @@ declare(strict_types=1);
 
 namespace Cuniform\Cli;
 
+use Cuniform\Build\BuildLock;
 use Cuniform\Build\BuildOptions;
 use Cuniform\Build\BuildPipeline;
+use Cuniform\Build\ReleaseDeployer;
 use Cuniform\Config\ConfigLoader;
 use Cuniform\CuniformException;
 
 /**
- * Entry point for bin/cuniform. Stages 1-8 (SPEC §10.1) run for real, both
+ * Entry point for bin/cuniform. Stages 1-9 (SPEC §10.1) run for real, both
  * for `--dry-run` (nothing is written to disk, but Verify still runs — a
  * dry run tells you whether a real build *would* succeed) and a plain
  * build (writes a complete release tree under `paths.releases/<timestamp>/`
- * once Verify passes). Stage 9 — the atomic deploy into `public/` — is
- * T23 and doesn't exist yet, so a plain build never touches `public/`, and
- * `--rollback` (which presupposes a deploy to roll back from) stays
- * unimplemented until T23.
+ * once Verify passes, then atomically deploys it into `public/`).
+ * `--rollback` re-points `public/` at the release before the current one,
+ * under the same build lock a build itself would hold, so a rollback and a
+ * concurrent build's deploy can never race each other.
  */
 final class Application
 {
@@ -66,12 +68,46 @@ final class Application
         }
 
         if (isset($flags['rollback'])) {
-            fwrite(STDOUT, "cuniform: rollback is not implemented yet (see docs/BUILD-ORDER.md, T23)\n");
+            return $this->rollback();
+        }
+
+        return $this->build(isset($flags['full']), isset($flags['dry-run']), isset($flags['allow-url-scheme-change']));
+    }
+
+    private function rollback(): int
+    {
+        try {
+            $config = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: rollback failed\n{$e->getMessage()}\n");
 
             return 1;
         }
 
-        return $this->build(isset($flags['full']), isset($flags['dry-run']), isset($flags['allow-url-scheme-change']));
+        $lock = new BuildLock(rtrim($config->paths->var, '/') . '/build.lock');
+
+        try {
+            $lock->acquire();
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: rollback failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        try {
+            $deployer = new ReleaseDeployer($config->paths->public, $config->paths->releases, $config->build->retainReleases);
+            $previous = $deployer->rollback();
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: rollback failed\n{$e->getMessage()}\n");
+
+            return 1;
+        } finally {
+            $lock->release();
+        }
+
+        fwrite(STDOUT, "cuniform: rolled back to {$previous}\n");
+
+        return 0;
     }
 
     private function build(bool $full, bool $dryRun, bool $allowUrlSchemeChange): int
@@ -97,7 +133,7 @@ final class Application
         }
 
         fwrite(STDOUT, "cuniform: built {$result->documentCount} documents, {$result->routeCount} routes -> {$result->releaseDir}\n");
-        fwrite(STDOUT, "cuniform: deploy is not implemented yet (see docs/BUILD-ORDER.md, T23) — public/ was not updated\n");
+        fwrite(STDOUT, "cuniform: deployed -> {$this->projectRoot}/public\n");
 
         return 0;
     }
