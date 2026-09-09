@@ -207,6 +207,96 @@ final class ApplicationTest extends TestCase
         self::assertDirectoryDoesNotExist($outputDir);
     }
 
+    public function testImportWxrWritesAReviewTrackingFileToTheDefaultLocation(): void
+    {
+        $exportPath = __DIR__ . '/../fixtures/Import/sample.xml';
+
+        self::assertSame(0, $this->app()->run(['import-wxr', $exportPath]));
+
+        $reviewFile = $this->projectRoot . '/var/import-review.json';
+        self::assertFileExists($reviewFile);
+
+        $contents = (string) file_get_contents($reviewFile);
+        self::assertStringContainsString('"decision": "pending"', $contents);
+        self::assertStringContainsString('"title": "A Published Post"', $contents);
+    }
+
+    public function testImportWxrWritesTheReviewFileToACustomPathWhenGiven(): void
+    {
+        $exportPath = __DIR__ . '/../fixtures/Import/sample.xml';
+        $reviewFile = $this->projectRoot . '/custom-review.json';
+
+        self::assertSame(0, $this->app()->run(['import-wxr', $exportPath, "--review-file={$reviewFile}"]));
+
+        self::assertFileExists($reviewFile);
+    }
+
+    public function testReReimportingPreservesAPreviouslyRecordedDecision(): void
+    {
+        $exportPath = __DIR__ . '/../fixtures/Import/sample.xml';
+
+        self::assertSame(0, $this->app()->run(['import-wxr', $exportPath]));
+        self::assertSame(0, $this->app()->run(['review-mark', '10', 'keep']));
+
+        // Re-run the same import (e.g. after a fix elsewhere) — the
+        // decision already recorded for source_id=10 must survive.
+        self::assertSame(0, $this->app()->run(['import-wxr', $exportPath]));
+
+        $contents = (string) file_get_contents($this->projectRoot . '/var/import-review.json');
+        self::assertStringContainsString('"decision": "keep"', $contents);
+    }
+
+    public function testReviewStatusWithNoTrackingFileYetSucceedsWithNothingToShow(): void
+    {
+        self::assertSame(0, $this->app()->run(['review-status']));
+    }
+
+    public function testReviewStatusWithAnUnknownOptionFails(): void
+    {
+        self::assertSame(2, $this->app()->run(['review-status', '--bogus']));
+    }
+
+    public function testReviewStatusFailureFromAMissingConfigIsReportedNotFatal(): void
+    {
+        unlink($this->projectRoot . '/config/site.php');
+
+        self::assertSame(1, $this->app()->run(['review-status']));
+    }
+
+    public function testReviewMarkWithTooFewArgumentsFailsWithUsage(): void
+    {
+        self::assertSame(2, $this->app()->run(['review-mark', '10']));
+    }
+
+    public function testReviewMarkWithAnUnknownDecisionFails(): void
+    {
+        self::assertSame(2, $this->app()->run(['review-mark', '10', 'discard']));
+    }
+
+    public function testReviewMarkFailureFromAMissingConfigIsReportedNotFatal(): void
+    {
+        unlink($this->projectRoot . '/config/site.php');
+
+        self::assertSame(1, $this->app()->run(['review-mark', '10', 'keep']));
+    }
+
+    public function testReviewMarkFailsWhenTheSourceIdIsNotInTheTrackingFile(): void
+    {
+        self::assertSame(0, $this->app()->run(['import-wxr', __DIR__ . '/../fixtures/Import/sample.xml']));
+
+        self::assertSame(1, $this->app()->run(['review-mark', '999999', 'keep']));
+    }
+
+    public function testReviewMarkRecordsTheDecisionInTheTrackingFile(): void
+    {
+        self::assertSame(0, $this->app()->run(['import-wxr', __DIR__ . '/../fixtures/Import/sample.xml']));
+
+        self::assertSame(0, $this->app()->run(['review-mark', '10', 'reject']));
+
+        $contents = (string) file_get_contents($this->projectRoot . '/var/import-review.json');
+        self::assertStringContainsString('"decision": "reject"', $contents);
+    }
+
     private function app(): Application
     {
         return new Application($this->projectRoot);

@@ -17,6 +17,10 @@ use Cuniform\Cutover\UrlInventoryWriter;
 use Cuniform\Import\ImportedDocumentWriter;
 use Cuniform\Import\ImportReport;
 use Cuniform\Import\ImportVerifier;
+use Cuniform\Import\ReviewChecklistBuilder;
+use Cuniform\Import\ReviewChecklistStore;
+use Cuniform\Import\ReviewDecision;
+use Cuniform\Import\ReviewEntry;
 use Cuniform\Import\WxrImporter;
 use Cuniform\Import\WxrReader;
 
@@ -48,7 +52,17 @@ use Cuniform\Import\WxrReader;
  * command only does the first half. `ImportVerifier` (T38, SPEC §A.4)
  * runs before anything is written — a hard failure there (e.g. two items
  * colliding on the same output path) means nothing is staged at all,
- * rather than half an import landing on disk.
+ * rather than half an import landing on disk. Every run also builds and
+ * saves the T39 review tracking file (`var/import-review.json` by
+ * default), merging in any decisions already recorded so a re-import
+ * (e.g. after fixing an unknown shortcode) never discards review work
+ * already done.
+ *
+ * `review-status`/`review-mark` (T39, SPEC §A.5) work the tracking file
+ * on its own, without touching the WXR export or the staged documents —
+ * the actual review-and-decide workflow, run as many times as needed
+ * across as many sessions as it takes ("an interrupted review can resume
+ * rather than restart").
  */
 final class Application
 {
@@ -89,6 +103,14 @@ final class Application
 
         if ($command === 'import-wxr') {
             return $this->importWxr($arguments);
+        }
+
+        if ($command === 'review-status') {
+            return $this->reviewStatus($arguments);
+        }
+
+        if ($command === 'review-mark') {
+            return $this->reviewMark($arguments);
         }
 
         if ($command !== 'build') {
@@ -198,12 +220,19 @@ final class Application
             return 2;
         }
 
-        $path      = array_shift($arguments);
-        $outputDir = null;
+        $path       = array_shift($arguments);
+        $outputDir  = null;
+        $reviewFile = null;
 
         foreach ($arguments as $argument) {
             if (str_starts_with($argument, '--output-dir=')) {
                 $outputDir = substr($argument, strlen('--output-dir='));
+
+                continue;
+            }
+
+            if (str_starts_with($argument, '--review-file=')) {
+                $reviewFile = substr($argument, strlen('--review-file='));
 
                 continue;
             }
@@ -221,13 +250,19 @@ final class Application
             return 1;
         }
 
-        $outputDir ??= rtrim($config->paths->var, '/') . '/import';
+        $outputDir  ??= rtrim($config->paths->var, '/') . '/import';
+        $reviewFile ??= rtrim($config->paths->var, '/') . '/import-review.json';
 
         try {
             $wxr    = (new WxrReader())->parse($path);
             $result = (new WxrImporter($config->defaultLanguage))->import($wxr);
             $report = (new ImportVerifier())->verify($wxr, $result);
             (new ImportedDocumentWriter())->write($result['documents'], $outputDir);
+
+            $store   = new ReviewChecklistStore();
+            $builder = new ReviewChecklistBuilder();
+            $checklist = $builder->merge($builder->build($wxr, $result, $report), $store->load($reviewFile));
+            $store->save($reviewFile, $checklist);
         } catch (CuniformException $e) {
             fwrite(STDERR, "cuniform: import-wxr failed\n{$e->getMessage()}\n");
 
@@ -243,8 +278,30 @@ final class Application
             . "Review each document, then copy the ones you keep into content/posts/{$config->defaultLanguage}/.\n");
 
         $this->printMigrationReport($report);
+        $this->printReviewSummary($checklist, $reviewFile);
 
         return 0;
+    }
+
+    /**
+     * @param array<int|string, ReviewEntry> $checklist
+     */
+    private function printReviewSummary(array $checklist, string $reviewFile): void
+    {
+        $pending = 0;
+        $kept    = 0;
+        $rejected = 0;
+
+        foreach ($checklist as $entry) {
+            match ($entry->decision) {
+                ReviewDecision::Pending => $pending++,
+                ReviewDecision::Keep => $kept++,
+                ReviewDecision::Reject => $rejected++,
+            };
+        }
+
+        fwrite(STDOUT, "cuniform: review checklist -> {$reviewFile} ({$pending} pending, {$kept} kept, "
+            . "{$rejected} rejected) — see 'cuniform review-status' (SPEC §A.5)\n");
     }
 
     /**
@@ -284,6 +341,142 @@ final class Application
         fwrite(STDOUT, $report->isClean()
             ? "cuniform: report is clean (SPEC §A.4) — nothing left here to review\n"
             : "cuniform: report is not clean (SPEC §A.4) — re-run once the items above are addressed\n");
+    }
+
+    /**
+     * @param list<string> $arguments
+     */
+    private function reviewStatus(array $arguments): int
+    {
+        $file = null;
+        foreach ($arguments as $argument) {
+            if (str_starts_with($argument, '--file=')) {
+                $file = substr($argument, strlen('--file='));
+
+                continue;
+            }
+
+            fwrite(STDERR, "cuniform: unknown option '{$argument}'\n" . $this->usage());
+
+            return 2;
+        }
+
+        try {
+            $config = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: review-status failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        $file ??= rtrim($config->paths->var, '/') . '/import-review.json';
+
+        try {
+            $checklist = (new ReviewChecklistStore())->load($file);
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: review-status failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        if ($checklist === []) {
+            fwrite(STDOUT, "cuniform: no review tracking file yet ({$file}) — run 'cuniform import-wxr' first\n");
+
+            return 0;
+        }
+
+        fwrite(STDOUT, "cuniform: SPEC §A.5 review checklist — confirm, per document:\n");
+        fwrite(STDOUT, "  1. no shortcode with an attacker-influenced attribute (src, href, ...)\n");
+        fwrite(STDOUT, "  2. every external link points where the text claims\n");
+        fwrite(STDOUT, "  3. no leftover verbatim [shortcode] from a plugin that no longer exists\n");
+        fwrite(STDOUT, "  4. no embedded tracking pixel or third-party asset surviving as an image\n");
+        fwrite(STDOUT, "  5. content genuinely worth keeping\n\n");
+
+        $ordered = (new ReviewChecklistBuilder())->sortedForReview($checklist);
+
+        $pending = array_filter($ordered, static fn (ReviewEntry $entry): bool => $entry->decision === ReviewDecision::Pending);
+        $decided = count($ordered) - count($pending);
+
+        fwrite(STDOUT, 'cuniform: ' . count($pending) . ' pending, ' . $decided . " already decided -> {$file}\n");
+
+        foreach ($pending as $entry) {
+            $flagNote = $entry->flags === [] ? '' : ' [' . count($entry->flags) . ' flag(s) from the migration report]';
+            fwrite(STDOUT, "  source_id={$entry->sourceId} {$entry->relativePath}{$flagNote}\n");
+            fwrite(STDOUT, "    {$entry->title}\n");
+            foreach ($entry->flags as $flag) {
+                fwrite(STDOUT, "    - {$flag}\n");
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param list<string> $arguments
+     */
+    private function reviewMark(array $arguments): int
+    {
+        if (count($arguments) < 2 || str_starts_with($arguments[0], '--') || str_starts_with($arguments[1], '--')) {
+            fwrite(STDERR, "cuniform: review-mark requires a source_id and a decision\n" . $this->usage());
+
+            return 2;
+        }
+
+        $sourceId       = array_shift($arguments);
+        $decisionArgument = array_shift($arguments);
+        $file           = null;
+
+        foreach ($arguments as $argument) {
+            if (str_starts_with($argument, '--file=')) {
+                $file = substr($argument, strlen('--file='));
+
+                continue;
+            }
+
+            fwrite(STDERR, "cuniform: unknown option '{$argument}'\n" . $this->usage());
+
+            return 2;
+        }
+
+        $decision = ReviewDecision::tryFrom($decisionArgument);
+        if ($decision === null) {
+            fwrite(STDERR, "cuniform: unknown decision '{$decisionArgument}' (expected pending, keep, or reject)\n" . $this->usage());
+
+            return 2;
+        }
+
+        try {
+            $config = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: review-mark failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        $file ??= rtrim($config->paths->var, '/') . '/import-review.json';
+
+        try {
+            $store     = new ReviewChecklistStore();
+            $checklist = $store->load($file);
+
+            if (!isset($checklist[$sourceId])) {
+                fwrite(STDERR, "cuniform: review-mark failed\nsource_id '{$sourceId}' is not in {$file} "
+                    . "— run 'cuniform import-wxr' first\n");
+
+                return 1;
+            }
+
+            $checklist[$sourceId] = $checklist[$sourceId]->withDecision($decision);
+            $store->save($file, $checklist);
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: review-mark failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        fwrite(STDOUT, "cuniform: source_id={$sourceId} marked '{$decision->value}' -> {$file}\n");
+
+        return 0;
     }
 
     private function setupPublic(): int
@@ -376,7 +569,9 @@ final class Application
           cuniform build --rollback
           cuniform legacy-urls <base-url> [--output=<path>] [--max-pages=<n>]
           cuniform setup-public
-          cuniform import-wxr <path-to-export.xml> [--output-dir=<path>]
+          cuniform import-wxr <path-to-export.xml> [--output-dir=<path>] [--review-file=<path>]
+          cuniform review-status [--file=<path>]
+          cuniform review-mark <source-id> <pending|keep|reject> [--file=<path>]
 
         TXT;
     }

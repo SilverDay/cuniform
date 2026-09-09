@@ -546,7 +546,7 @@ correct and needs no change.
 | T36 | [ ] | Media downloader with host allow-list and checksums | T34 | §A.3 |
 | T37 | [x] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
 | T38 | [x] | Verification: count reconciliation, URL diff, word-count tolerance, migration report | T37 | §A.4 |
-| T39 | [ ] | Manual review tracking file and checklist workflow | T38 | §A.5 |
+| T39 | [x] | Manual review tracking file and checklist workflow | T38 | §A.5 |
 
 **T34 note:** SPEC §A.2's own pre-work checklist was run against the operator's real export
 before writing any code (`~/export/blog-export.xml`, 6 items, ~60 KB — not committed, see
@@ -796,6 +796,64 @@ between calls, confirmed by inspection (`grep` for `time()`/`uniqid`/`rand`/`ran
 `testRunningTheImportTwiceOnTheSameExportProducesByteIdenticalDocuments` runs `WxrImporter`
 twice against the same in-memory export and asserts every resulting document's path, contents,
 and source ID are identical byte-for-byte, plus the warnings list itself.
+
+**T39 note:** four new pieces in `src/Import/` — `ReviewDecision` (an enum: `pending`, `keep`,
+`reject`), `ReviewEntry` (one document's review state, immutable — `withDecision()` returns a
+new instance rather than mutating in place, matching this codebase's readonly-value-object
+convention), `ReviewChecklistBuilder` (pure: builds fresh entries from an import run, merges a
+prior tracking file's decisions onto them, and orders entries for display), and
+`ReviewChecklistStore` (the only I/O — reads and writes the tracking file as JSON, mirroring the
+existing `WxrImporter`/`ImportedDocumentWriter` computation-vs-persistence split from T37). Two
+new CLI commands, `review-status [--file=<path>]` and `review-mark <source-id>
+<pending|keep|reject> [--file=<path>]`, plus `import-wxr` itself now builds/merges/saves the
+tracking file (`var/import-review.json` by default, a new `--review-file=<path>` override) as
+part of every run.
+
+**"A checkbox per source_id" became one `decision` field, not a bare boolean.** SPEC §A.5's own
+fifth review point — "content genuinely worth keeping... the cheapest moment to delete posts
+that have not aged well" — is itself a decision with two outcomes, not just a yes/no on whether
+someone looked at the document. `Pending` doubles as "not yet reviewed," so there's no second,
+separate reviewed flag that could disagree with the decision.
+
+**"An interrupted review can resume rather than restart"** is what governs
+`ReviewChecklistBuilder::merge()`: a prior run's recorded decision for a given source_id is
+carried forward onto a fresh build, matched by source_id, every time `import-wxr` runs again —
+which matters because re-running the import (say, after fixing an unknown shortcode) is a normal
+part of getting T38's migration report clean, and it must never silently discard review work
+already done in the meantime. Two things are handled deliberately, not left implicit: a
+source_id no longer present in the fresh build (an item that stopped importing) is dropped —
+nothing is left to review; and flags are always taken from the fresh build, never carried over
+from the stale one, since the whole point of a re-run is often to see whether a fix actually
+cleared a flag.
+
+**Ordering is a read-time concern, not a stored one.** The tracking file itself stays keyed by
+source_id, order-independent; SPEC §A.4's "documents with flags first, clean ones batched" is
+applied by `ReviewChecklistBuilder::sortedForReview()` only when `review-status` displays the
+list, so the file's own layout never has to be re-derived from an order that would otherwise
+grow stale as decisions accumulate across sessions.
+
+**`review-status` prints SPEC §A.5's own five-point checklist as a header**, once, before
+listing pending documents — the literal text of "it needs a checklist rather than a skim" is
+what makes this a checklist workflow rather than a bare data dump. Only pending documents are
+listed individually (with source_id, relative path, title, and flag count/detail); already-
+decided ones are summarized as a single count, since there's nothing left to act on for them.
+
+Validated against the operator's real export end-to-end through the actual `bin/cuniform`
+CLI (not just the underlying classes): 6 documents staged, 1 flagged (the already-known
+empty-slug fallback from T37/T38), all 6 starting `pending`. Marked one `keep` and one `reject`
+via `review-mark`; `review-status` immediately reflected 4 pending / 2 decided, with the marked
+two correctly absent from the pending list. Re-ran `import-wxr` a second time — both decisions
+were still in place afterward, confirming the merge behavior holds through a real CLI round
+trip, not just in an in-memory test. None of this real-corpus content is committed;
+`ReviewChecklistBuilderTest`/`ReviewChecklistStoreTest` use small in-memory `WxrItem`s and a
+temp-directory JSON file respectively, matching this milestone's established test style.
+
+**Deliberately out of scope, and said so in code rather than silently absent:** marking a
+document `reject` only records the decision — it does not delete the staged file from
+`var/import/`, and marking `keep` does not copy it into `content/`. Both remain a manual action
+the operator takes themselves, the same boundary T37's own CLI output already states ("copy the
+ones you keep into content/posts/..."). T39's job is tracking the decision, not acting on it —
+adding either action later is a small, separate change, not a redesign.
 
 ---
 
