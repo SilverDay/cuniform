@@ -7,6 +7,8 @@ date: "2026-03-14"
 translation_key: "2026-security-culture"
 image: "/media/2026/03/photo.jpg"
 image_alt: "Ein Foto"
+aliases:
+  - "/de/alter-pfad/"
 tags:
   - "awareness"
 ---

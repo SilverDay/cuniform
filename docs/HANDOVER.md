@@ -1,82 +1,76 @@
-# Session Handover — 2026-09-09 (T20)
+# Session Handover — 2026-09-09 (T21)
 
 Point-in-time snapshot for picking this work back up, written at the end of a session that
-implemented T20 (Artifacts) on top of T1-T16/T18/T19 from earlier sessions. `docs/SPEC.md` and
-`docs/BUILD-ORDER.md` remain authoritative — this file explains the *why* behind decisions
-those documents don't fully capture, and what to do next. Safe to delete once it goes stale.
+implemented T21 (redirect map compilation) on top of T1-T16/T18/T19/T20 from earlier sessions.
+`docs/SPEC.md` and `docs/BUILD-ORDER.md` remain authoritative — this file explains the *why*
+behind decisions those documents don't fully capture, and what to do next. Safe to delete once
+it goes stale.
 
 ## Current state
 
-- `make check` is green: 351 tests, 691 assertions, PHPStan level 8, PSR-12 + escaping lint.
-- BUILD-ORDER.md status: T1–T16, T18, T19, T20 are `[x]`. T17 is still `[ ]` (its "T17
-  progress" note is unchanged). T20 has its own "T20 note" — read it before assuming every
-  §11 requirement is fully wired end-to-end.
-- A real `bin/cuniform build` now writes, per release: every post/page route, per-language
-  `feed.xml`/`atom.xml`, one site-wide `sitemap.xml`, `search-index.json`,
-  `robots.txt`, `.well-known/security.txt`, and a fingerprinted `style.<hash8>.css`. Still no
-  deploy (T23) — nothing touches `public/`.
-- `templates/style.css` is new and real (SPEC §9's required 7 highlight classes + base
-  palette + dark mode) — previously didn't exist anywhere in the repo, which would have made
-  "asset fingerprinting" meaningless without it.
+- `make check` is green: 363 tests, 719 assertions, PHPStan level 8, PSR-12 + escaping lint.
+- BUILD-ORDER.md status: T1–T16, T18, T19, T20, T21 are `[x]`. T17 is still `[ ]` (unchanged
+  "T17 progress" note). T20 and T21 each have their own note in BUILD-ORDER.md — read both
+  before assuming §11/§8.3 are fully wired end-to-end (T22's verification isn't built yet, so
+  nothing currently checks a redirect target actually resolves).
+- A real `bin/cuniform build` now also writes `redirects.conf` (a `RedirectMatch 301` block)
+  per release, combining every document's `aliases` front matter with manual entries from
+  `content/redirects.map`.
+- **`content/redirects.map` is a new, real, committed file** — not a template/example, actual
+  content — carrying the one entry SPEC §7.11 gives verbatim: `/feed.xml` → `/de/feed.xml`.
 
 ## Decisions made this session that a future reader should know about
 
-1. **Found and fixed a real T19 bug: hreflang URLs were route-relative, not absolute.**
-   `SiteResolver` was passing bare route paths (`/de/x/`) into `TranslatedDocument`/
-   `HreflangSetBuilder`, so every `<link rel="alternate" hreflang="...">` in the previous
-   session's output was missing its scheme and host — invalid per SPEC §7.5's own example, and
-   contradicting what the T17-era `TemplateRendererTest` fixtures already assumed (they
-   construct `HreflangEntry` with absolute URLs). Not caught earlier because
-   `BuildPipelineTest` only checked `hreflang="en"` substrings, never the `href` value. Fixed
-   by making `SiteResolver::absoluteUrl()` prefix `config.baseUrl` before building
-   `TranslatedDocument`/keying `$hreflangByUrl` — and the regression test now asserts the full
-   `href` value, not just the `hreflang` code, on both `SiteResolverTest` and
-   `BuildPipelineTest`.
-2. **`noindex` reaches `head.php` by promoting it (and `toc`/`headings`) onto the abstract
-   `ViewModel` base class**, rather than an `instanceof` check in the template. Both
-   `PostViewModel` and `PageViewModel` already declared these three fields identically; T20 is
-   the first task that actually needed to *read* `noindex` from code that only has a `ViewModel`
-   (not knowing which concrete subtype), so the duplication became a real problem rather than
-   a style nit. The refactor is behavior-preserving for every existing caller — `PostViewModel`/
-   `PageViewModel`'s own public constructor *signatures* are unchanged (same params, same
-   order), only their bodies now forward `noindex`/`toc`/`headings` to `parent::__construct()`
-   instead of promoting them a second time.
-3. **`templates/style.css` didn't exist anywhere before this session**, despite SPEC §9
-   requiring it (7 highlight classes, a specific base palette, dark mode). No earlier task had
-   claimed it as a deliverable. Written now because "asset fingerprinting" (explicitly T20's
-   own line item) is meaningless without a source file to fingerprint. `LayoutContext` gained a
-   `stylesheetUrl` field (default `/style.css`, so existing tests that don't pass one still
-   work) and `head.php` now links it via `eUrl()` instead of a hardcoded path.
-4. **`security.txt`'s `Contact` field reuses `config.mail.notify`** rather than adding a new
-   config key — it's already the operator's own notification address (SPEC §15.2), and RFC
-   9116 only requires *a* contact method, not a dedicated security-specific one. `Expires` is
-   computed as build-time + 1 year, per the RFC's own recommendation against a longer window.
-5. **Tag/series indexes and `redirects.map` compilation are still not built** — same reasoning
-   as last session (`ResolvedSite`'s docblock): nothing consumes tag/series data yet (T17's
-   remaining templates), and redirect compilation is explicitly T21's own task. T20 only reads
-   what already exists on `ResolvedSite`/`RenderedDocument`.
-6. **`GeneratedFile` (route HTML) and `ArtifactFile` (everything else T20 writes) stayed
-   separate types** rather than unifying them — a route's file path is *derived* from its route
-   (`<route>/index.html`), while an artifact's path is given directly (`sitemap.xml`,
-   `.well-known/security.txt`). `BuildPipeline::writeRelease()` takes both lists and writes them
-   through one shared `writeFile()` helper, which is the only place that needed to know both
-   shapes exist.
+1. **Redirect compilation stayed a sibling of `ArtifactStage`, not folded into it.** SPEC
+   §10.1 lists "redirects" as part of stage 7 (Emit) alongside feeds/sitemap/etc., which would
+   argue for putting it in `ArtifactStage` (T20's class). Kept as separate classes
+   (`RedirectMapParser`, `RedirectMapCompiler`, `RedirectMapGenerator`) instead, called
+   directly from `BuildPipeline` alongside `ArtifactStage`, purely to keep the file boundary
+   matching BUILD-ORDER's T20/T21 task split — `ArtifactStage`'s docblock specifically
+   enumerates T20's own artifact list, and conflating T21's work into it would blur which task
+   owns what. Functionally both still run as part of the same conceptual stage 7.
+2. **Chose the `RedirectMatch` block format over `RewriteMap txt:`** (§8.3 offers either). A
+   `RedirectMatch` block is self-contained — no companion map file, no `RewriteMap` directive
+   to keep in sync — which matters because *how* it gets `Include`-d into the vhost, and how
+   Apache picks up a changed one on deploy, is T27's job and doesn't exist yet. Revisit if T27
+   turns out to want the `RewriteMap` form instead (e.g. for very large redirect sets, where a
+   single `RewriteMap` lookup is cheaper than many `RedirectMatch` regex evaluations per
+   request) — nothing here is hard to swap, `RedirectMapGenerator` is the only place that'd
+   need to change.
+3. **A manual `content/redirects.map` entry for `/` is dropped with a warning, not a build
+   error.** §8.3 says such an entry "should be omitted rather than allowed to compete" — read
+   as authoring guidance rather than a hard failure, since the entry itself isn't *wrong*, just
+   redundant with the root's own 302 (§7.4.1). Verified with a fixture entry
+   (`tests/fixtures/Build/content/redirects.map` has one) that BuildPipelineTest asserts never
+   reaches the compiled `redirects.conf`.
+4. **Redirect *target* resolution is explicitly out of scope here.** §10.3's bullet "any entry
+   in redirects.map points at a path that does not exist in the new release" is T22's job
+   (Verify runs after the full release tree exists to check paths against); T21 only combines
+   and de-duplicates entries. Don't be surprised that a redirect to a nonexistent page compiles
+   without complaint right now — that's intentional, not an oversight.
+5. **Where the compiled `redirects.conf` actually gets picked up by Apache is still an open
+   question**, deliberately left for T27. It's written into the release tree like any other
+   artifact (so it rotates with each deploy the same way `sitemap.xml` does), but unlike
+   sitemap.xml it's not meant to be *served*, it's meant to be `Include`-d into the vhost
+   config — which needs either a stable path through the `public/` symlink plus an Apache
+   reload on every deploy, or something T27 will need to actually work out.
 
 ## What's still deferred and why
 
-Unchanged from last session's list, still accurate:
+Unchanged from last session's list:
 
 - T17's remaining templates (`index.php`, `tag.php`, `series.php`, `archive.php`, `search.php`,
   `404.php`, `feed.xml.php`, `post-card`/`pagination` partials).
 - `lang-switcher.php`'s disabled/home-link state for an untranslated document (SPEC §7.7).
-- Tag/series indexes, prev/next, `redirects.map` compilation.
+- Tag/series indexes and prev/next (SPEC §10.1's Resolve stage lists them; still no consumer).
 
 ## Recommended next step
 
-**T21** (redirect map compilation and the hand-written feed redirect entry, §7.11/§8.3) is a
-natural next step — small, well-specified, and would give `redirects.map` an actual consumer.
-**T22** (build verification, §10.3) depends on both T20 and T21 and is the other realistic next
-step; it's the point where things like "every internal link resolves," "no alias points at a
-missing path," and the URL-scheme-change guard actually get enforced, which matters more now
-that T20 produces several more cross-referencing artifacts (sitemap ↔ hreflang, feeds ↔ posts)
-worth verifying automatically rather than only by reading test assertions.
+**T22** (build verification, §10.3) is the natural next step — it now has both T20's artifacts
+and T21's redirect map to actually verify (every internal link resolves, every referenced media
+file exists, hreflang symmetry — already checked at build time by `HreflangSymmetryChecker`,
+worth confirming T22 doesn't just re-do that redundantly — reserved slugs, and the redirect
+target check T21 explicitly deferred). It also includes the URL-scheme-change guard, which
+needs to compare the current release's URL scheme against the *previous* one — worth checking
+whether that requires reading state T19/T20/T21 don't currently persist anywhere (nothing
+today records what the last successful build's `url_prefix`/`default_language`/`languages` were).

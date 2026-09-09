@@ -116,7 +116,7 @@ than `strftime()` or system locale data (§7.9).
 | T18 | [x] | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap | T12 | §6.2, §6.3 |
 | T19 | [x] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
 | T20 | [x] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
-| T21 | [ ] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
+| T21 | [x] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
 | T22 | [ ] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
 | T23 | [ ] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
 | T24 | [ ] | Incremental build cache and invalidation, including translation-group invalidation | T19 | §10.2 |
@@ -177,6 +177,19 @@ Also fixed in this task: `SiteResolver` was building hreflang sets from route-re
 instead of absolute URLs — SPEC §7.5's own example, and the existing T17 template tests, both
 expect an absolute `href`. Caught here because the sitemap needs the same URLs and a
 substring-only assertion in T19's own test hadn't caught the missing scheme/host.
+
+**T21 note:** compiled to a `RedirectMatch 301` block (`redirects.conf`, one of the two formats
+§8.3 offers — chosen over a `RewriteMap txt:` file since it needs no companion map file to wire
+up later) written into the release tree like any other artifact; actually `Include`-ing it from
+the vhost config and reloading Apache on deploy is T27's job, not this one's. Combines each
+document's own `aliases` (SPEC §5.2) with manual entries from `content/redirects.map` (now a
+real, committed file — see below), rejects two entries claiming the same old-path, and drops a
+manual entry for `/` with a warning per §8.3's own ordering caveat. Deliberately does **not**
+check that a redirect's target resolves — that's explicitly a §10.3/T22 concern, which runs
+after the full release tree exists to check against; this stage only has stage 4's URLs and the
+raw manual entries. `content/redirects.map` now carries the one entry SPEC's own prose gives
+verbatim (§7.11): `/feed.xml` → `/de/feed.xml`, preserving the legacy (German) feed subscribers
+through the relaunch even though `en` is now `default_language`.
 
 **T22 acceptance:** each verification condition in §10.3 has a test that makes it fire.
 A redirect pointing at a non-existent path blocks the deploy. Changing `url_prefix` without

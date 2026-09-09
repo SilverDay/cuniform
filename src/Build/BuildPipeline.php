@@ -14,8 +14,12 @@ use Cuniform\Template\TemplateResolver;
 
 /**
  * Orchestrates stages 1-7 (SPEC §10.1: Lock, Discover, Parse, Resolve,
- * Render, Template, Emit). Stages 8-9 — Verify and the atomic deploy — are
- * T22-T23 and do not happen here: a real (non-dry-run) build writes a
+ * Render, Template, Emit — feeds/sitemap/search-index/robots/security.txt/
+ * assets via ArtifactStage, T20; the compiled redirects.conf via
+ * RedirectMapCompiler/RedirectMapGenerator, T21 — both are stage 7's job
+ * per §10.1's own listing, split into separate classes only along
+ * BUILD-ORDER's task boundary). Stages 8-9 — Verify and the atomic deploy —
+ * are T22-T23 and do not happen here: a real (non-dry-run) build writes a
  * complete release tree under `paths.releases/<timestamp>/`, but never
  * touches `public/`.
  */
@@ -74,6 +78,10 @@ final class BuildPipeline
 
         $artifacts = (new ArtifactStage($this->config))->build($site, $renderedByIdentifier, $now);
 
+        $manualRedirects = (new RedirectMapParser())->parse(rtrim($this->config->paths->content, '/') . '/redirects.map');
+        $redirects       = (new RedirectMapCompiler())->compile($site, $manualRedirects);
+        $redirectsFile   = (new RedirectMapGenerator($this->config))->generate($redirects['entries']);
+
         $strings          = UiStringCatalogue::load($this->langDir, $this->config->languages);
         $dateFormatter    = new DateFormatter($strings);
         $templateResolver = new TemplateResolver($this->config->paths->templates);
@@ -90,9 +98,9 @@ final class BuildPipeline
         // build() with zero filesystem side effects (SPEC §9 rule 6).
         $pages = $templateStage->build($site, $renderedByIdentifier);
 
-        $warnings = [...$site->warnings, ...$artifacts['warnings']];
+        $warnings = [...$site->warnings, ...$artifacts['warnings'], ...$redirects['warnings']];
 
-        $releaseDir = $options->dryRun ? null : $this->writeRelease($pages, $artifacts['files']);
+        $releaseDir = $options->dryRun ? null : $this->writeRelease($pages, [...$artifacts['files'], $redirectsFile]);
 
         return new BuildResult(count($site->documents), count($pages), $warnings, $releaseDir);
     }

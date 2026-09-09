@@ -1,0 +1,7 @@
+# Test fixture — mirrors the real content/redirects.map format.
+/feed.xml /de/feed.xml
+
+# A root entry, deliberately included, to exercise the "must be omitted"
+# handling (SPEC §8.3) — BuildPipelineTest asserts this produces a warning
+# and never reaches the compiled output.
+/ /en/

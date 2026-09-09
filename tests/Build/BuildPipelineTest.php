@@ -126,6 +126,34 @@ final class BuildPipelineTest extends TestCase
         self::assertStringContainsString('Expires:', $securityTxt);
     }
 
+    public function testRedirectMapCombinesAliasesAndManualEntriesAndDropsTheRootEntry(): void
+    {
+        $pipeline = new BuildPipeline($this->config(self::REAL_TEMPLATES), self::LANG_DIR);
+        $result   = $pipeline->run(new BuildOptions());
+        self::assertNotNull($result->releaseDir);
+
+        $redirects = (string) file_get_contents($result->releaseDir . '/redirects.conf');
+
+        // The hand-written manual entry (content/redirects.map fixture).
+        self::assertStringContainsString(
+            'RedirectMatch 301 ^/feed\.xml$ https://blog.silverday.de/de/feed.xml',
+            $redirects
+        );
+
+        // The alias-derived entry from the German post's front matter.
+        self::assertStringContainsString(
+            'RedirectMatch 301 ^/de/alter\-pfad/$ https://blog.silverday.de/de/sicherheitskultur/',
+            $redirects
+        );
+
+        // The fixture's "/" entry must never reach the compiled output.
+        self::assertStringNotContainsString('^/$', $redirects);
+        self::assertNotEmpty(array_filter(
+            $result->warnings,
+            static fn (string $w): bool => str_contains($w, "redirects.map entry for '/'")
+        ));
+    }
+
     public function testDryRunRunsEveryStageButWritesNothingToDisk(): void
     {
         $pipeline = new BuildPipeline($this->config(self::REAL_TEMPLATES), self::LANG_DIR);

@@ -1,0 +1,12 @@
+# Manual redirect entries (SPEC §8.3). One "old-path new-path" pair per
+# line, both site-relative. Compiled at build time into redirects.conf
+# alongside every document's own `aliases` front matter entries.
+#
+# Never add an entry for "/" — it's redundant with the root's own 302
+# (SPEC §7.4.1, §8.3) and the build drops it with a warning if you do.
+
+# Existing subscribers move under symmetric prefixes (SPEC §7.11): the
+# legacy site's single feed was German, so it now lives at /de/feed.xml.
+# A 301 here is what keeps feed readers subscribed rather than silently
+# unsubscribing everyone — this entry is written by hand, not generated.
+/feed.xml /de/feed.xml

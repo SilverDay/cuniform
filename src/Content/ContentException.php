@@ -99,4 +99,14 @@ final class ContentException extends CuniformException
 
         return new self("Front matter parsing failed:\n" . implode("\n", $lines));
     }
+
+    /**
+     * @param list<string> $errors
+     */
+    public static function redirectMapInvalid(string $path, array $errors): self
+    {
+        $lines = array_map(static fn (string $error): string => '- ' . $error, $errors);
+
+        return new self("Invalid redirects.map ({$path}):\n" . implode("\n", $lines));
+    }
 }
