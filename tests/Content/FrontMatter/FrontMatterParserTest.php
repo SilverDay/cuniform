@@ -12,6 +12,7 @@ use Cuniform\Content\FrontMatter\LegalRole;
 use Cuniform\Content\FrontMatter\NavGroup;
 use Cuniform\Content\FrontMatter\PageFrontMatter;
 use Cuniform\Content\FrontMatter\PostFrontMatter;
+use Cuniform\Content\Slugifier;
 use PHPUnit\Framework\TestCase;
 
 final class FrontMatterParserTest extends TestCase
@@ -271,6 +272,22 @@ final class FrontMatterParserTest extends TestCase
             self::assertStringContainsString('invalid slug pattern', $e->getMessage());
             self::assertStringContainsString("'status' must be one of", $e->getMessage());
         }
+    }
+
+    public function testFrontMatterSlugSurvivesVerbatimEvenWhenTheSlugifierWouldRewriteIt(): void
+    {
+        // "already--slugified" is a valid slug per the pattern (dash repetition
+        // is allowed), but Slugifier::slugify() would collapse the double dash.
+        // SPEC §5.4: a slug supplied in front matter is used verbatim and never
+        // re-slugified — this parser never calls Slugifier at all.
+        $slug = 'already--slugified';
+        self::assertNotSame($slug, (new Slugifier())->slugify($slug), 'test setup: the slugifier must actually rewrite this input');
+
+        $doc = "---\ntitle: T\nslug: {$slug}\nstatus: draft\nsummary: S\ndate: 2026-01-01\n---\nBody";
+
+        $result = (new FrontMatterParser())->parse($doc, DocumentKind::Post);
+
+        self::assertSame($slug, $result->shared->slug);
     }
 
     public function testNoFrontMatterDelimiterTreatsWholeDocumentAsBody(): void

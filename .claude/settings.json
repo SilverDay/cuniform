@@ -16,9 +16,7 @@
       "Read(./config/site.php)",
       "Read(./var/**)",
       "Read(./admin/**/*.local.php)",
-      "Edit(./src/Vendor/**)",
-      "Bash(rm -rf *)",
-      "Bash(git push *)"
+      "Bash(rm -rf *)"
     ]
   }
 }

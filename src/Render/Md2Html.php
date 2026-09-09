@@ -176,6 +176,17 @@ class Md2Html
     }
 
     /**
+     * Whether this instance was constructed with the headless option on.
+     * Cuniform always renders in headless mode (SPEC §9); this lets a
+     * consumer that receives an already-constructed instance (rather than
+     * building its own) assert that invariant instead of trusting it silently.
+     */
+    public function isHeadless(): bool
+    {
+        return (bool) $this->options['headless'];
+    }
+
+    /**
      * Strip a leading `---`-delimited front matter block, if present, and
      * record its contents for getFrontMatter(). The block must start at byte
      * offset 0; anything else (including a `---` used as a horizontal rule

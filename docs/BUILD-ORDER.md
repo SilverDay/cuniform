@@ -16,11 +16,11 @@ Mark completion by changing `[ ]` to `[x]` in the Status column, in the same com
 | T2 | [x] | Config loader and validator: `config/site.php`, language set, `url_prefix` validation, permalink pattern | T1 | §7.1, §8.1 |
 | T3 | [x] | Filesystem gateway with `realpath()` containment, extension allow-list, size cap | T1 | §4.6 |
 | T4 | [x] | Front matter parser: restricted YAML subset, typed result object, error collection | T3 | §5.2, §5.5 |
-| T5 | [ ] | Slugifier: UTF-8, German transliteration, collision suffixes, verbatim passthrough | T1 | §5.4 |
+| T5 | [x] | Slugifier: UTF-8, German transliteration, collision suffixes, verbatim passthrough | T1 | §5.4 |
 | T6 | [x] | Renderer fork: import `Md2Html.php` into `src/Render/`, namespace it, write `CHANGELOG-FORK.md`, port the known bug fixes and the fork features of §4.3 | T1 | §4.1, §4.2, §4.3 |
-| T7 | [ ] | Render adapter: front matter strip, guards | T4, T5, T6 | §4.6 |
-| T8 | [ ] | Shortcode layer: code masking, placeholder tokens, pre/post passes, handler interface | T7 | §4.5 |
-| T9 | [ ] | Shortcode handlers: figure, video, embed, details, note, toc, include | T8 | §4.5, §6.5 |
+| T7 | [x] | Render adapter: front matter strip, guards | T4, T5, T6 | §4.6 |
+| T8 | [x] | Shortcode layer: code masking, placeholder tokens, pre/post passes, handler interface | T7 | §4.5 |
+| T9 | [x] | Shortcode handlers: figure, video, embed, details, note, toc, include | T8 | §4.5, §6.5 |
 
 **T1 acceptance:** `make check` runs and passes on an empty project. No Composer package is
 required at runtime — deleting `vendor/` leaves `bin/cuniform` working.
@@ -52,6 +52,13 @@ and has unit tests for each ported bug fix. `src/Render/CHANGELOG-FORK.md` recor
 starting commit (`SilverDay/md2html-php@f1e0162`) and every change made since. No DOM
 post-processing stage exists anywhere in C4 for the §4.3 features — they are built into the
 fork directly.
+
+**T7 acceptance:** the adapter reads a file only through the filesystem gateway (T3) — never
+`file_get_contents()` directly — and calls the renderer with `convert(string)` in headless
+mode, never `convertFile()`. Front matter never reaches the rendered output (verified
+end-to-end, not just at the parser). Headings collected during rendering are exposed for the
+future `[toc]` shortcode (T9). A disallowed path or invalid front matter surfaces as
+`ContentException`, propagated rather than swallowed.
 
 **T8 acceptance:** a shortcode written inside a fenced code block renders as literal text.
 A block-level shortcode does not leave a stray `<p>` wrapper. A placeholder token is never

@@ -65,3 +65,8 @@ prompted forking instead of continuing to vendor:
   - **`stripFrontMatter` option** (default off) plus `getFrontMatter(): string`. Strips a
     leading `---`-delimited block textually — no YAML parsing, that stays the caller's job —
     and leaves a `---` anywhere else (e.g. a horizontal rule) alone.
+- Added `isHeadless(): bool`. `RenderAdapter` (T7) now takes an injected `Md2Html` instance
+  instead of constructing its own, so it can share one instance with the `[toc]` shortcode
+  handler (T9 — it needs `getHeadings()` after the document renders); this getter lets the
+  adapter assert the shared instance is actually headless (SPEC §9) instead of trusting the
+  caller silently.
