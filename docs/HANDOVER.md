@@ -1,80 +1,82 @@
-# Session Handover — 2026-09-09 (T39)
+# Session Handover — 2026-09-09 (README + deployment guide)
 
-Point-in-time snapshot for picking this work back up, written at the end of a session that
-implemented T39 (manual review tracking file and checklist workflow, SPEC §A.5) on top of
-T1-T38. **M6 (Import, P3) is now done except T36** (media downloader), skipped at the
-operator's own direction since the real export has no media to validate a downloader against.
-M1-M3 fully done; M4: T25 done, T26 not applicable, T27 deliverables done (checkbox open
-pending live verification); M6: T34, T35, T37, T38, T39 done, T36 still open; M5 (Admin) not
-yet started, per this milestone's own reprioritization note. `docs/SPEC.md` and
-`docs/BUILD-ORDER.md` remain authoritative — this file explains the *why* behind decisions
-those documents don't fully capture, and what to do next. Safe to delete once it goes stale.
+Point-in-time snapshot for picking this work back up. Code-wise, nothing changed since T39 —
+this session's work was entirely documentation: the stale scaffold `README.md` (written before
+T1 existed, describing the repo as containing "no implementation code by design") was replaced
+with one that actually describes the built project, then expanded into a full step-by-step
+deployment guide (system users, directory bootstrap, git-push wiring, a generalized sample
+Apache vhost, systemd unit installation, first build). Both are pushed to `origin/main`.
+`docs/SPEC.md` and `docs/BUILD-ORDER.md` remain authoritative for the engine itself; this file
+explains the *why* behind decisions those documents don't fully capture, and what to do next.
+Safe to delete once it goes stale.
+
+## Build status (unchanged since T39 — see BUILD-ORDER.md for task-level detail)
+
+M1-M3 fully done. M4: T25 done, T26 not applicable (live site is down, nothing to snapshot),
+T27 deliverables built but not yet verified against a live host (checkbox left open on
+purpose). **M6 (Import, P3) done except T36** (media downloader — skipped at the operator's own
+direction; the real export has no media to validate a downloader against). **M5 (Admin) not
+started** — see the important note below on why that's expected to stay true for a while.
+
+## Important operational context for future sessions
+
+**The operator does not have enough remaining usage budget to build the admin panel (M5:
+T28-33) right now.** This was stated explicitly this session ("We do not have enough usage left
+for the admin panel, so I want you to replace the current readme..."). M5 is by far the largest
+remaining milestone — auth with TOTP, a browser editor, preview rendering, a media library, an
+audit log — and building it properly (with the same test coverage and real-corpus validation
+discipline every other milestone in this project got) is a substantial effort.
+
+**Do not start M5 tasks (T28-33) without confirming the operator wants to spend the budget on
+it.** If asked to "continue" without a specific task named, the safer assumption is doc/content
+work, small fixes, or T36, not launching into T28. If genuinely unsure which task to pick up,
+ask rather than guessing — this is exactly the kind of budget-sensitive call this project's own
+standing rules already say to stop and check on.
 
 ## Current state
 
-- `make check` is green: 658 tests, 1321 assertions, PHPStan level 8, PSR-12 + escaping lint.
-- New in `src/Import/`: `ReviewDecision` (enum: `pending`/`keep`/`reject`), `ReviewEntry`
-  (immutable per-document review state), `ReviewChecklistBuilder` (pure: build + merge +
-  display ordering), `ReviewChecklistStore` (the only I/O — JSON read/write).
-- `bin/cuniform import-wxr` now also builds, merges, and saves a review tracking file
-  (`var/import-review.json` by default, `--review-file=<path>` to override) on every run.
-- Two new commands: `review-status [--file=<path>]` (prints SPEC §A.5's 5-point checklist once,
-  then every pending document — flagged ones first) and `review-mark <source-id>
-  <pending|keep|reject> [--file=<path>]`.
-- Validated end-to-end against the operator's real six-item export, through the actual
-  `bin/cuniform` CLI dispatch path (not just the underlying classes): 6 documents staged, 1
-  flagged, marked one `keep` and one `reject`, re-ran `import-wxr` a second time, and confirmed
-  both decisions survived the re-import intact.
-
-## Decisions made this session that a future reader should know about
-
-1. **"A checkbox per source_id" (SPEC §A.5's own words) became one `decision` field —
-   `pending`/`keep`/`reject` — not a bare boolean.** SPEC's own fifth review point ("content
-   genuinely worth keeping... the cheapest moment to delete posts that have not aged well") is
-   itself a decision with two outcomes, not just a yes/no on whether someone looked at the
-   document. There is no separate "reviewed" flag that could disagree with the decision —
-   `Pending` *is* "not yet reviewed."
-2. **Re-running `import-wxr` never discards review work already done.**
-   `ReviewChecklistBuilder::merge()` carries a prior run's recorded decision forward onto a
-   fresh build, matched by source_id — this is what makes SPEC's "an interrupted review can
-   resume rather than restart" actually true across the normal fix-and-retry cycle of getting
-   T38's migration report clean. Two things handled deliberately: a source_id no longer present
-   in the fresh build is dropped (nothing left to review), and flags are always taken fresh,
-   never carried over stale — the whole point of a re-run is often checking whether a fix
-   actually cleared a flag.
-3. **Ordering ("documents with flags first, clean ones batched," SPEC §A.4) is a display-time
-   concern, not a stored one.** The tracking file itself stays keyed by source_id,
-   order-independent; `review-status` sorts a copy only when printing, so the file's layout
-   never needs to be re-derived from an order that would otherwise go stale as decisions
-   accumulate across sessions.
-4. **`review-mark reject` only records the decision — it does not delete the staged file**, and
-   `keep` does not copy the document into `content/`. Both stay manual actions the operator
-   takes themselves, the same boundary T37's CLI output already states. T39's job is tracking
-   the decision, not acting on it.
-5. **`review-status` prints SPEC §A.5's own five-point checklist as a header, once**, before
-   listing pending documents — this is what makes it a checklist workflow rather than a bare
-   data dump ("it needs a checklist rather than a skim," SPEC's own words).
+- `make check` is green: 658 tests, 1321 assertions, PHPStan level 8, PSR-12 + escaping lint —
+  unchanged this session, since no source files were touched.
+- `README.md` now documents: what's actually built (with an honest status table, not
+  overclaiming M5), requirements, local dev setup, the full CLI reference (kept in sync with
+  `Application::usage()`'s literal text), `make check`, project layout, a 5-step deployment
+  walkthrough, and the WordPress import workflow.
+- The sample vhost in the README's Deployment section is a **generalized, placeholder-domain
+  version** of `deploy/apache/blog.silverday.de.conf` (this project's own real, hostname-specific
+  file) — written so it reads as a copy-adaptable template rather than duplicating the real file
+  verbatim (drift risk if kept byte-identical). The README explicitly points back to the real
+  file as the authoritative one to copy from for this actual deployment.
+- One thing caught and fixed while drafting: an early version of the deployment steps included
+  `composer install --no-dev` in production — removed, since it contradicted this project's own
+  "zero runtime dependencies, vendor/ never deployed" claim (stated at the top of the same
+  README). `bin/cuniform` never touches `vendor/autoload.php`; only the hand-rolled
+  `src/autoload.php` matters at runtime.
 
 ## What's still deferred and why
 
-- T36 (media downloader) — skipped in task order at the operator's own direction; still needed
-  as a general capability (SPEC §A.3), but has nothing real to validate against in this export.
-- Actually promoting a `keep`-decided document into `content/`, or deleting a `reject`-decided
-  one from `var/import/` — both explicitly out of scope this session (decision 4 above); left
-  as manual operator actions, small and separate to automate later if it becomes worth it.
+- **M5 (Admin, T28-33)** — not a technical deferral, a budget one (see the note above). Nothing
+  about the engine blocks starting it; SPEC §13 and BUILD-ORDER's own T28-33 rows are ready to
+  work from whenever the operator decides to spend on it.
+- T36 (media downloader) — skipped at the operator's own direction; still needed as a general
+  capability (SPEC §A.3), but has nothing real to validate against in this export.
+- Actually promoting a `keep`-decided imported document into `content/`, or deleting a
+  `reject`-decided one from `var/import/` — both explicitly out of scope in T39; left as manual
+  operator actions.
 - Page import, the broader category/tag-archive/feed/date-archive redirect generation, and the
   bracket/Markdown-character escaping gap — all earlier decisions (T35/T37), unchanged.
 
 ## Recommended next step
 
-**M6 is functionally done for this operator's real corpus** — every real post has run the full
-pipeline (parse → convert → emit front matter → verify → track for review) at least once, with
-zero hard failures. The honest next step is a **content decision, not a coding task**: go
-through `cuniform review-status`, mark each of the six real documents `keep` or `reject` per
-SPEC §A.5's checklist, then manually copy the kept ones into `content/posts/en/` and run a real
-`bin/cuniform build` against them — this is the first point where imported content actually
-becomes visible on the site, and it's deliberately not something either T37 or T39 automated
-(SPEC §A.5's manual-review control is the whole point). If more coding work is wanted first
-instead: **T36** (media downloader) is the only open M6 task, with no real data to validate
-against; **M5** (Admin: T28-33) is next in BUILD-ORDER's original order and hasn't been touched
-since before the cutover reprioritization.
+No coding task is queued. The two live options, in order of what actually gets the site
+publishing sooner:
+
+1. **A content decision, not a coding task**: run `cuniform review-status` against the real
+   WXR import, mark each of the six real documents `keep` or `reject` per SPEC §A.5's checklist,
+   copy the kept ones into `content/posts/en/`, and run a real `bin/cuniform build` — this is
+   the first point imported content actually goes live, and P1's build/deploy pipeline is fully
+   ready for it today, with no admin app required (authoring is git-push only, per SPEC §12
+   Path A, until P2 exists).
+2. **T36** (media downloader) if there turns out to be real media to import after all, or if
+   it's worth building ahead of need.
+
+M5 (Admin) stays parked until the operator explicitly says to spend budget on it.
