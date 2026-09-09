@@ -804,11 +804,33 @@ Between those points, every existing URL 404s. For a site with inbound links and
 
 Three ways to close it, in my order of preference:
 
-1. **Freeze the old site as static HTML and ship it inside the first release.** Crawl the existing site before cutover (`wget --mirror` or equivalent), place the result under `releases/<ts>/` at its original paths, and let the build carry it forward until P3 replaces each path with a 301 to `/de/<slug>/`. Old URLs keep returning 200 with the original content throughout. Symmetric prefixes make this cleaner than it would otherwise be: the frozen tree occupies the old root paths, the new site lives entirely under `/de/` and `/en/`, and the two cannot collide — so "reserved paths" is just "whatever the snapshot contains", checked once at build time.
+1. ~~**Freeze the old site as static HTML and ship it inside the first release.** Crawl the existing site before cutover (`wget --mirror` or equivalent), place the result under `releases/<ts>/` at its original paths, and let the build carry it forward until P3 replaces each path with a 301 to `/de/<slug>/`. Old URLs keep returning 200 with the original content throughout. Symmetric prefixes make this cleaner than it would otherwise be: the frozen tree occupies the old root paths, the new site lives entirely under `/de/` and `/en/`, and the two cannot collide — so "reserved paths" is just "whatever the snapshot contains", checked once at build time.~~ **No longer available** — resolved 2026-09-09: the operator took the live site down before this option could be exercised, so there is nothing left to crawl or mirror. See the resolution below.
 2. **Delay the cutover to P3.** Develop against a staging hostname, switch DNS only when the import is done. Clean, but it means P1 and P2 ship to nobody, which removes the feedback that makes early phases worth having.
 3. **Accept the gap** with a holding page and a redirect map to nothing. Cheapest, and the most expensive later.
 
-Whichever is chosen, **export the existing content before anything touches the vhost**, and keep the export immutable — it is the only copy of the source material once `public` becomes a symlink. Verify the export is complete and readable before the first `rmdir public`.
+**Resolved 2026-09-09 (§19 item 4):** with option 1 no longer available, and a WordPress XML
+export (WXR) in hand instead of a live site, the operator chose a fourth path this list didn't
+originally name — **pull the P3 import (Appendix A) forward and build it next**, ahead of P2
+(Admin, M5) in `docs/BUILD-ORDER.md`'s task sequence, rather than accepting the gap or waiting
+on a staging cutover. This closes the gap with the real content instead of working around its
+absence, and it's now the *only* option that gets old URLs actually redirecting somewhere
+real rather than to a 404 or a holding page. Two things this does **not** change:
+
+- §1.1's phasing table still says P3 "ships when P1+P2 stable" — this resolution reorders which
+  BUILD-ORDER *tasks* get built next (the importer is a CLI pipeline, SPEC §A.1-§A.5, that
+  needs no admin UI to run), not when the imported content actually goes live. Whether the
+  import ships to production before or after M5 (Admin) is a separate, later decision.
+- The forward-compatibility hooks §1.2 lists (`aliases`, `redirects.map`, verbatim slugs,
+  `source_id`, configurable permalinks) were already built in P1 for exactly this reason, so
+  nothing about them changes.
+
+Legacy URL enumeration (§19 item 5) is affected the same way: T25's crawler (built before this
+resolution) has nothing to crawl for this site anymore, but each WXR `<item><link>` already
+carries the old permalink directly — a more reliable source than a crawl would have been, no
+sitemap or spider guesswork needed. T25's tooling stays built and generically useful; it's
+simply not this migration's own URL source.
+
+Whichever path is chosen, **export the existing content before anything touches the vhost**, and keep the export immutable — it is the only copy of the source material once `public` becomes a symlink. Verify the export is complete and readable before the first `rmdir public`. This step is already done: the operator holds a WXR export, taken before the site came down.
 
 Feed continuity deserves separate attention: `/feed.xml` subscribers persist for years, and under symmetric prefixes that path moves to `/de/feed.xml`. The 301 for it (§7.11) is not optional and not generated — it is written by hand into `redirects.map` and verified after cutover with an actual request.
 
@@ -875,9 +897,9 @@ FPM socket `cuniform-admin`, shortcode placeholder prefix `%%CFSC…%%`.
 
 1. ~~**Reading of "optional"**~~ — resolved 2026-09-09: the *engine-level* reading, confirmed. `blog.silverday.de` launches bilingual (`de` + `en`), not German-only-then-English-later, so `url_prefix: always` is in place as more than a precaution.
 2. ~~**Language set and default**~~ — resolved 2026-09-09, with a change from the original assumption: `de` + `en`, but **English** (not German) is `default_language` — `/` redirects to `/en/`, and `x-default` hreflang points at the English home (§7.4.1, §7.5; the Apache skeleton in §3.2 was updated to match). §6.4 was also generalized on 2026-09-09: legal-page authority now follows `default_language` (English, here) rather than a hardcoded German rule, though the underlying German-law basis for the Impressum itself is unaffected — that follows the operator's jurisdiction, not the UI language. Still open: whether English is a full parallel site or a subset of the German content at launch — worth an answer soon, since with English now the *default* (what `/` shows first), a thin English index is a more visible first impression than it would have been as the secondary language.
-3. **What the existing site runs on** — Appendix A assumes WordPress. If `blog.silverday.de` is something else, the importer's input format changes, though the pipeline and verification do not.
-4. **§15.5 option** — freeze-and-serve, delayed cutover, or accept the gap.
-5. **Legacy URL enumeration** — the complete list of live URLs on the current site is needed before cutover (§7.4, §15.5), not after. A crawl of the existing sitemap is the practical source; if the current site has no sitemap, a `wget --spider --recursive` run produces one.
+3. ~~**What the existing site runs on**~~ — resolved 2026-09-09: WordPress, confirmed by the operator holding a WXR export (Appendix A's own assumed input format) rather than something else. Appendix A's pipeline applies as written.
+4. ~~**§15.5 option**~~ — resolved 2026-09-09, and not one of the three originally listed: the live site is down, so freeze-and-serve (option 1) is no longer available. The operator chose to pull the P3 import forward instead — see §15.5's own resolution note for what this does and does not change about phase-shipping order.
+5. **Legacy URL enumeration** — superseded by item 4's resolution rather than separately resolved: T25 (`bin/cuniform legacy-urls`) is built and generically usable, but for *this* migration each WXR `<item><link>` is the URL source now, not a crawl. Still open in the sense that T37 (redirect generation from the WXR export) hasn't been built yet — that's where the actual old→new URL mapping for this site gets produced.
 6. ~~**Renderer fork provenance**~~ — resolved 2026-09-09. §4 treats `md2html-php` as an owned fork rather than a byte-identical vendor copy, forked from `SilverDay/md2html-php@f1e0162`, which already contained the bug fixes that prompted the change (a `parseList()` infinite-recursion hang and a numbering-reset regression in its own fix — see `src/Render/CHANGELOG-FORK.md` for both). T6 is done.
 
 ---
@@ -921,7 +943,7 @@ The migration report drives the order: documents with flags first, clean ones ba
 | 1 | Rendering model | Static publishing; runtime rendering only in authenticated preview |
 | 2 | Vhosts | Single vhost; admin at `/admin`, outside the release tree |
 | 3 | Comments | None, and none imported |
-| 4 | WordPress import | Deferred to P3; forward-compatibility hooks built in P1 |
+| 4 | WordPress import | Deferred to P3; forward-compatibility hooks built in P1. **Revised 2026-09-09:** the live site came down before §15.5's freeze-and-serve option could be used, so the *build order* for Appendix A was pulled forward (`docs/BUILD-ORDER.md` M6, ahead of M5) — §1.1's phase-shipping criterion (P3 ships once P1+P2 are stable) is unchanged, only which tasks get built next |
 | 5 | Static pages | First-class content type (§6) |
 | 6 | Renderer | `md2html-php` as the base. **Revised 2026-09-09:** originally vendored byte-identical (v0.8 and earlier); retired after serious bugs surfaced upstream during use on another project. Now an owned fork at `src/Render/Md2Html.php`, edited directly — see §4 |
 | 7 | Hosting | SilverDay web server, `/srv/vhosts/blog.silverday.de/`, outbound-only mail |

@@ -396,7 +396,7 @@ which is a reasonable follow-up but out of this task's scope.
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
 | T25 | [x] | Legacy URL enumeration tooling: crawl the existing site, emit a URL inventory | — | §15.5, §19 item 5 |
-| T26 | [ ] | Legacy snapshot support: carry a frozen static tree through builds without collision | T23, T25 | §15.5 |
+| T26 | [n/a] | ~~Legacy snapshot support: carry a frozen static tree through builds without collision~~ | T23, T25 | §15.5 |
 | T27 | [ ] | Apache vhost config, systemd units (build consumer, scheduled-post timer), one-time `public` symlink setup | T23 | §3.2, §10.5, §15.1 |
 
 **T25 note:** BUILD-ORDER lists no explicit acceptance criteria for T25; scope was derived
@@ -430,6 +430,17 @@ out into `HttpResponseHeaderParser`, a pure function that *is* tested. robots.tx
 reader (no wildcards, no per-record multi-agent grouping), documented as such in its own
 docblock; a missing or unparseable robots.txt is always treated as allow-all, never a crawl
 failure.
+
+**T26 status — not applicable, resolved 2026-09-09 (SPEC §15.5, §19 item 4).** The operator
+took the live site down before this task could be started, and confirmed a WordPress XML
+export (WXR) exists instead of a live site to crawl/mirror. Freeze-and-serve — the cutover
+option this task exists to support — needs a *live* site (`wget --mirror` against something
+still serving), which is no longer possible; there is nothing left to snapshot. The operator's
+chosen replacement is to pull the P3 import (M6, Appendix A) forward instead — see M6's own
+reprioritization note below and SPEC §15.5's resolution note for the full reasoning. `[n/a]`
+here is a new status marker this file hasn't used before (every prior task resolved to done or
+not-yet-done) — it means "will not be built," not "not yet built," and is spelled out in full
+rather than silently left `[ ]` so it doesn't read as still-pending work.
 
 **T27 acceptance:** ACME renewal succeeds across a deploy — verify by forcing a renewal and
 running a build during the challenge window. The per-language 404 fires inside each prefix and
@@ -512,9 +523,25 @@ file permissions, not by convention.
 
 ## M6 — Import (P3)
 
+**Reprioritized 2026-09-09 (SPEC §15.5, §19 item 4; see T26's own status note above): M6 is
+next, ahead of the remaining M5 tasks (T28-33), not after them as originally ordered.** The
+live site is down and the freeze-and-serve cutover option it needed is gone with it; the
+operator chose to build the WordPress import now instead, using the WXR export already in
+hand, rather than accept an indefinite 404 gap or wait on a staging cutover. This changes task
+*build order* only — SPEC §1.1 still says P3 ships once P1+P2 are stable, so whether the
+imported content actually goes live before or after M5 (Admin) is a separate, later decision;
+see SPEC's own §15.5 resolution note for the distinction spelled out in full.
+
+T34's `Deps` is corrected from `T33` (M5's last task) to none: nothing in Appendix A's own
+pipeline design needs an admin UI to run. It's a streaming CLI parser over a WXR file, the same
+shape as T25's crawler — `T33` in the original table reflected M6 simply being sequenced after
+M5, not a real technical dependency, and that reading no longer holds now that M6 is being
+built first. T35-39's internal chain (each depending on the previous M6 task) was already
+correct and needs no change.
+
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
-| T34 | [ ] | WXR streaming parser with external entities disabled | T33 | §A.1 |
+| T34 | [ ] | WXR streaming parser with external entities disabled | — | §A.1 |
 | T35 | [ ] | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34 | §A.3 |
 | T36 | [ ] | Media downloader with host allow-list and checksums | T34 | §A.3 |
 | T37 | [ ] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
