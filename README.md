@@ -117,24 +117,146 @@ docs/           SPEC.md (authoritative) and BUILD-ORDER.md (task-by-task status)
 
 ## Deployment
 
-`deploy/` holds the artifacts a real deployment needs, none of them wired up automatically:
+`deploy/` holds the artifacts a real deployment needs (`docs/SPEC.md` §3, §10.5, §15.1). None
+of it is wired up automatically — the steps below take a host from nothing to serving traffic.
+The commands assume `/srv/vhosts/example.com` as the vhost root; substitute your own domain and
+path throughout, and see `docs/SPEC.md` §3 for the full directory rationale.
 
-- `deploy/apache/blog.silverday.de.conf` — the vhost (`docs/SPEC.md` §3.2): the ACME
-  challenge webroot kept outside the release tree, per-language and neutral 404 handling, the
-  response headers §14 requires, and the `/admin` proxy block (inert until P2 exists).
-- `deploy/git/post-receive` — the git-push authoring path (`docs/SPEC.md` §12, Path A) and, for
-  now, the *only* wired-up build trigger: pushing to the server's own checkout runs
-  `bin/cuniform build` synchronously and relays its output back to the pushing client.
-- `deploy/systemd/cuniform-build.{service,path,timer}` — the shared build consumer for the
-  *other* two triggers §10.5 describes. `.timer` fires every 15 minutes and is useful today, git
-  push alone included: it's what actually publishes a `status: scheduled` post once its date
-  arrives, with no admin app required. `.path` watches for `var/build-requested`, a request file
-  only the not-yet-built admin app (T32) will ever write — install it now if you like, but it
-  stays permanently idle until that piece exists.
+### 1. Users and directory layout
 
-On a fresh host: run `cuniform setup-public` once (a freshly provisioned `public/` is usually a
-real directory; this turns it into the symlink the deploy step swaps), install the vhost and
-systemd units, then push content or run `cuniform build` directly.
+```bash
+useradd --system --home-dir /srv/vhosts/example.com --shell /usr/sbin/nologin cuniform-build
+useradd --system --home-dir /srv/vhosts/example.com --shell /usr/sbin/nologin cuniform-web
+
+mkdir -p /srv/vhosts/example.com
+cd /srv/vhosts/example.com
+git clone https://github.com/SilverDay/cuniform.git .
+cp config/site.example.php config/site.php   # then edit it
+
+mkdir -p var/log acme content/media
+chown -R cuniform-build:cuniform-build /srv/vhosts/example.com
+sudo -u cuniform-build php bin/cuniform setup-public   # turns a fresh public/ into the deploy symlink
+```
+
+`cuniform-build` owns `content/`, `releases/`, `var/`, and the `public` symlink and is who the
+build actually runs as (below); `cuniform-web` is reserved for the future admin app (P2, not
+built yet) and needs no privileges today.
+
+### 2. Git-push authoring (`deploy/git/post-receive`)
+
+```bash
+git config receive.denyCurrentBranch updateInstead
+ln -s ../../deploy/git/post-receive .git/hooks/post-receive
+chmod +x deploy/git/post-receive
+```
+
+A normal (non-bare) checkout with `updateInstead` is what lets a plain `git push` update this
+same working tree directly — the hook's only remaining job is running `bin/cuniform build` and
+relaying its output.
+
+### 3. Apache vhost
+
+`deploy/apache/blog.silverday.de.conf` is the real config this project runs — copy and adapt
+it directly rather than retyping it. The shape, generalized:
+
+```apache
+# :80 exists only for Let's Encrypt's HTTP-01 challenge.
+<VirtualHost *:80>
+    ServerName example.com
+    Alias /.well-known/acme-challenge/ /srv/vhosts/example.com/acme/
+    <Directory /srv/vhosts/example.com/acme>
+        Options None
+        AllowOverride None
+        Require all granted
+    </Directory>
+    RedirectMatch 301 ^(?!/\.well-known/acme-challenge/)(.*)$ https://example.com$1
+</VirtualHost>
+
+<VirtualHost *:443>
+    ServerName example.com
+    DocumentRoot /srv/vhosts/example.com/public   # a symlink, not a real directory (SPEC §3)
+
+    Alias /.well-known/acme-challenge/ /srv/vhosts/example.com/acme/
+    <Directory /srv/vhosts/example.com/acme>
+        Options None
+        AllowOverride None
+        Require all granted
+    </Directory>
+
+    # Both blocks declared — Apache follows symlinks only when the
+    # *relevant* directory's Options permit it, and DocumentRoot itself
+    # being a symlink makes that ambiguous otherwise.
+    <Directory /srv/vhosts/example.com/public>
+        Options FollowSymLinks
+        AllowOverride None
+        Require all granted
+        <FilesMatch "\.(php|phtml|phar)$">
+            Require all denied
+        </FilesMatch>
+    </Directory>
+    <Directory /srv/vhosts/example.com/releases>
+        Options FollowSymLinks
+        AllowOverride None
+        Require all granted
+        <FilesMatch "\.(php|phtml|phar)$">
+            Require all denied
+        </FilesMatch>
+    </Directory>
+
+    RedirectMatch 302 ^/$ /en/            # your default_language; SPEC §7.4.1 — 302, not 301
+    ErrorDocument 404 /404.html
+    <Location "/en/">
+        ErrorDocument 404 /en/404.html    # one per configured language
+    </Location>
+
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; form-action 'self'; base-uri 'none'; object-src 'none'"
+    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    Header always set Cross-Origin-Opener-Policy "same-origin"
+    Header always set X-Frame-Options "DENY"
+
+    <FilesMatch "\.[0-9a-f]{8}\.(css|js)$">
+        Header always set Cache-Control "public, max-age=31536000, immutable"
+    </FilesMatch>
+    <FilesMatch "\.html$">
+        Header always set Cache-Control "public, max-age=600, must-revalidate"
+    </FilesMatch>
+</VirtualHost>
+```
+
+Requires `mod_rewrite`, `mod_headers`, `mod_alias`, `mod_ssl`. Install with
+`a2ensite`/`apache2ctl configtest`/`systemctl reload apache2` (or your distro's equivalents),
+then run `certbot --apache -d example.com` against the `:80` vhost — it inserts the certificate
+directives and `certbot renew` keeps them current without touching anything above. The `/admin`
+`Alias`/proxy block from `deploy/apache/blog.silverday.de.conf` is omitted above since it's
+inert until the admin app (P2) exists; add it back when that's built.
+
+### 4. systemd units
+
+```bash
+for unit in cuniform-build.service cuniform-build.path cuniform-scheduled-build.timer; do
+    ln -s /srv/vhosts/example.com/deploy/systemd/$unit /etc/systemd/system/$unit
+done
+systemctl daemon-reload
+systemctl enable --now cuniform-scheduled-build.timer   # every 15 min — publishes `status: scheduled` posts
+systemctl enable --now cuniform-build.path               # idle until the admin app (T32) writes to it; harmless to enable now
+```
+
+`cuniform-build.service` (the shared consumer of both triggers above) runs as the
+`cuniform-build` user, writes to `var/log/build.log`, and is sandboxed with
+`ProtectSystem=strict` / `NoNewPrivileges=true`, scoped to the vhost root only.
+
+### 5. First build
+
+```bash
+sudo -u cuniform-build php bin/cuniform build --dry-run   # validates everything, writes nothing
+sudo -u cuniform-build php bin/cuniform build              # writes releases/<ts>/ and deploys it
+```
+
+From here on, `git push` to this checkout triggers a build automatically (step 2); manual and
+scheduled builds both work the same way without it.
 
 ## Importing from WordPress
 
