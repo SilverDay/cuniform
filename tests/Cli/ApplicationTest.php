@@ -20,7 +20,11 @@ final class ApplicationTest extends TestCase
         mkdir($this->projectRoot . '/var', 0o755, true);
         mkdir($this->projectRoot . '/releases', 0o755, true);
 
-        file_put_contents($this->projectRoot . '/config/lang/en.php', "<?php\nreturn [];\n");
+        // The real file, not an empty stub: every configured language needs
+        // every key ListingTemplateStage's templates call t() for (T17),
+        // and this fixture is only ever built with a single 'en' language,
+        // so there's no cross-language mismatch to keep in sync by hand.
+        copy(__DIR__ . '/../../config/lang/en.php', $this->projectRoot . '/config/lang/en.php');
         file_put_contents($this->projectRoot . '/config/site.php', $this->configFileContents());
     }
 

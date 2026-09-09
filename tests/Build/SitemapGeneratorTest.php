@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Cuniform\Tests\Build;
 
 use Cuniform\Build\DiscoveredDocument;
+use Cuniform\Build\ListingSet;
 use Cuniform\Build\ParsedDocument;
 use Cuniform\Build\ResolvedDocument;
 use Cuniform\Build\ResolvedSite;
 use Cuniform\Build\SitemapGenerator;
+use Cuniform\Build\TagArchive;
 use Cuniform\Content\FrontMatter\DocumentKind;
 use Cuniform\Content\FrontMatter\DocumentStatus;
 use Cuniform\Content\FrontMatter\PostFrontMatter;
@@ -46,6 +48,18 @@ final class SitemapGeneratorTest extends TestCase
         self::assertStringContainsString('<lastmod>2026-03-14</lastmod>', $xml);
     }
 
+    public function testIncludesTheHomeIndexAndTagArchivePageOneOnly(): void
+    {
+        $site     = new ResolvedSite([], [], []);
+        $listing  = new ListingSet([], ['de' => [new TagArchive('awareness', 'Awareness', [])]], [], []);
+        $document = ConfigFixture::make();
+
+        $xml = (new SitemapGenerator($document))->generate($site, $listing)->contents;
+
+        self::assertStringContainsString('<loc>https://blog.silverday.de/de/</loc>', $xml);
+        self::assertStringContainsString('<loc>https://blog.silverday.de/de/tag/awareness/</loc>', $xml);
+    }
+
     /**
      * @param list<ResolvedDocument> $documents
      */
@@ -54,7 +68,7 @@ final class SitemapGeneratorTest extends TestCase
         $site      = new ResolvedSite($documents, [], []);
         $generator = new SitemapGenerator(ConfigFixture::make());
 
-        return $generator->generate($site)->contents;
+        return $generator->generate($site, new ListingSet([], [], [], []))->contents;
     }
 
     private function resolvedPost(string $slug, bool $noindex = false, ?\DateTimeImmutable $updated = null): ResolvedDocument

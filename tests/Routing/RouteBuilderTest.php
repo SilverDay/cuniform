@@ -87,4 +87,63 @@ final class RouteBuilderTest extends TestCase
         self::assertSame('/de/impressum/', $path);
         self::assertSame('impressum', $firstSegment);
     }
+
+    public function testIndexRoutePageOneIsTheLanguageHome(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Always, ['de', 'en'], '/{slug}/');
+
+        self::assertSame('/en/', $builder->indexRoute('en', 1));
+    }
+
+    public function testIndexRoutePageTwoAndBeyondUsesThePageSuffix(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Always, ['en'], '/{slug}/');
+
+        self::assertSame('/en/page/2/', $builder->indexRoute('en', 2));
+        self::assertSame('/en/page/7/', $builder->indexRoute('en', 7));
+    }
+
+    public function testIndexRouteUnderNeverHasNoLanguageSegment(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Never, ['en'], '/{slug}/');
+
+        self::assertSame('/', $builder->indexRoute('en', 1));
+        self::assertSame('/page/2/', $builder->indexRoute('en', 2));
+    }
+
+    public function testTagRoute(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Always, ['en'], '/{slug}/');
+
+        self::assertSame('/en/tag/awareness/', $builder->tagRoute('en', 'awareness', 1));
+        self::assertSame('/en/tag/awareness/page/2/', $builder->tagRoute('en', 'awareness', 2));
+    }
+
+    public function testSeriesRouteIsNeverPaginated(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Always, ['en'], '/{slug}/');
+
+        self::assertSame('/en/series/onboarding/', $builder->seriesRoute('en', 'onboarding'));
+    }
+
+    public function testArchiveRoute(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Always, ['en'], '/{slug}/');
+
+        self::assertSame('/en/archive/2026/', $builder->archiveRoute('en', 2026));
+    }
+
+    public function testSearchRoute(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Always, ['en'], '/{slug}/');
+
+        self::assertSame('/en/search/', $builder->searchRoute('en'));
+    }
+
+    public function testErrorRoute(): void
+    {
+        $builder = new RouteBuilder(UrlPrefix::Always, ['en'], '/{slug}/');
+
+        self::assertSame('/en/404.html', $builder->errorRoute('en'));
+    }
 }

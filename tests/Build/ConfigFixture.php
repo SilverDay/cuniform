@@ -29,6 +29,7 @@ final class ConfigFixture
         int $feedItems = 20,
         ?string $defaultLanguage = null,
         UrlPrefix $urlPrefix = UrlPrefix::Always,
+        int $postsPerPage = 10,
     ): Config {
         return new Config(
             baseUrl: $baseUrl,
@@ -38,7 +39,7 @@ final class ConfigFixture
             defaultLanguage: $defaultLanguage ?? $languages[0],
             urlPrefix: $urlPrefix,
             permalink: '/{slug}/',
-            postsPerPage: 10,
+            postsPerPage: $postsPerPage,
             feedItems: $feedItems,
             paths: new ConfigPaths('/tmp/content', '/tmp/templates', '/tmp/releases', '/tmp/public', '/tmp/var'),
             build: new BuildSettings(5, 2 * 1024 * 1024, 0.10, $searchIndexWarnBytes),

@@ -112,7 +112,7 @@ than `strftime()` or system locale data (§7.9).
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
 | T16 | [x] | ViewModel objects and escaping helpers `e`/`eAttr`/`eUrl`/`eJs`; escaping lint in `make lint` | T7 | §9 |
-| T17 | [ ] | Template set: layout, post, page, index, tag, series, archive, search, 404, feed | T14, T16 | §9 |
+| T17 | [x] | Template set: layout, post, page, index, tag, series, archive, search, 404, feed | T14, T16 | §9 |
 | T18 | [x] | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap | T12 | §6.2, §6.3 |
 | T19 | [x] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
 | T20 | [x] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
@@ -128,15 +128,68 @@ sanitizer does — reused, not reimplemented a second time. `ViewModel` exposes 
 `canonicalUrl`, and a nullable `hreflang`, and `t()` delegates to the UI string catalogue for
 its own language.
 
-**T17 progress (not yet done):** `layout.php`, `post.php`, `page.php`, and the partials that
-don't need aggregated data (`head`, `nav-primary`, `nav-footer`, `lang-switcher`, `toc`) are
-built and tested, along with the rendering mechanism (`TemplateRenderer`, `TemplateResolver`).
-Not started: `index.php`, `tag.php`, `series.php`, `archive.php`, `search.php`, `404.php`,
-`feed.xml.php`, and the `post-card`/`pagination` partials — all need aggregated corpus data
-(post listings, pagination state, tag/series indexes, a search index) that doesn't exist until
-T18/T19 build it. `nav-primary`/`nav-footer` currently render whatever `NavItem` list they're
-given but nothing builds that list yet (T18); `lang-switcher` doesn't yet render a disabled/
-home-link state for a language with no translation (§7.7) — both to revisit once T18 lands.
+**T17 note:** the remaining templates — `index.php`, `tag.php`, `series.php`, `archive.php`,
+`search.php`, `404.php`, plus `partials/post-card.php` and `partials/pagination.php` — are
+built, alongside the aggregation they needed and nothing before this task had a reason to
+build: `ListingResolver` (a second, independent read of `ResolvedSite`, producing per-language
+post lists, tag archives, series archives, and year archives — see `ListingSet`'s own
+docblock for why this isn't folded into `SiteResolver`) and `ListingTemplateStage` (renders
+all of it, parallel to `SiteTemplateStage`). `Paginator` splits any list into pages of
+`posts_per_page`, always producing at least one — even empty — page, since the language home
+route must resolve even for a brand-new site with zero posts (§7.4.1).
+
+`feed.xml.php` is deliberately absent from the allow-list: `FeedGenerator` (T20) already
+builds RSS 2.0 and Atom directly with `DOMDocument`, so no PHP template ever renders a feed —
+see `BuildPipeline`'s and `TemplateResolver`'s own docblocks. `SitemapGenerator` (T20) now
+also emits each listing type's *first* page — `/{L}`, each tag archive, each series index,
+each year archive — since SPEC §11.2's "excludes ... pagination beyond page 1" only makes
+sense once something has pagination beyond page 1; the search page and 404s are excluded, not
+being content a search engine should index. `AssetFingerprinter` (T20) is generalized to
+derive `<name>.<hash8>.<ext>` from the source file's own name rather than a hardcoded
+`style.css`, so `search.js` (search.php's external script — SPEC §14.1 prefers no inline
+script at all on public pages, since a static page carries no per-request CSP nonce) fingerprints
+the same way.
+
+`InternalLinkChecker`'s bare-language-home-link carve-out (added in T22) is removed: `/{L}/`
+now really is generated, so a link to it is checked exactly like any other internal link — its
+constructor dropped the `$languages` parameter it no longer needs, and `check()` returns a
+plain `list<string>` instead of an `{errors, warnings}` shape that could now only ever produce
+an empty `warnings` array.
+
+The neutral root `/404.html` (§7.12) can't go through `layout.php` at all — that file requires
+a single `<html lang>`, and this page deliberately carries every configured language's own
+blurb and home link, each in its own `lang` attribute (NFR-4). It's rendered by a small
+template of its own, `404-root.php` (via `NeutralErrorContext`, not a `ViewModel`), and is
+**always** generated regardless of `url_prefix` — SPEC §3.2's vhost skeleton declares
+`ErrorDocument 404 /404.html` unconditionally, only *adding* the per-language
+`<Location>` overrides when prefixed, so the neutral page's own necessity doesn't depend on
+how many languages are configured. The per-language `/{L}404.html` is generated only when that
+language is actually prefixed (`RouteBuilder::prefixFor($language) !== ''`), matching §7.12's
+"unprefixed single-language sites need only the root 404.html."
+
+Two judgment calls made where SPEC is silent, both documented in code and worth confirming
+rather than treated as settled:
+
+1. **Series ordering.** §5.3 says series "groups posts within one language" but doesn't state
+   an order. This implementation uses reverse-chronological, same as every other listing type
+   (§6.1's convention for posts generally) — an alternative reading (publication order, i.e.
+   ascending, so a series reads start-to-finish) is equally defensible and would be a one-line
+   change in `ListingResolver::seriesArchives()` if that's the intended reading.
+2. **Listing pages carry no hreflang / no language switcher.** A generated listing page
+   (index, tag, series, archive, search, 404) isn't a translated document with a
+   `translation_key`, so `ListingTemplateStage` gives every one of them a null `HreflangSet` —
+   consistent with how an untranslated real document already behaves (§7.7), but it also means
+   the switcher renders nothing on the home page and search page in a multi-language site,
+   which reads more like a real gap than a deliberate simplification for those two specifically
+   (their equivalent page always exists in every configured language, unlike a tag or series
+   archive, which may not). Worth revisiting if this is worse than what stands.
+
+`RouteBuilder` gained `indexRoute()`/`tagRoute()`/`seriesRoute()`/`archiveRoute()`/
+`searchRoute()`/`errorRoute()` — none of them go through `RouteTable::register()`, since every
+one starts with a word §8.2 already reserves (`tag`, `series`, `archive`, `page`, `search`),
+so a real content document can never collide with one by construction. `ConfigFixture` (test
+helper) gained an optional `postsPerPage` parameter, needed to test pagination boundaries
+without a large fixture corpus.
 
 **T18 acceptance:** a page nested more than three levels below the language segment is a
 build error (§6.3). A page needs `nav_order` set to appear in a nav tree at all — "reachable
@@ -147,18 +200,21 @@ warning, not a build failure. `nav_parent` overrides directory position when giv
 **T19 acceptance:** a second concurrent build is rejected by `flock`, not queued. A template
 error aborts the build with no output written.
 
-**T19 scope note:** stages 1-6 run for real, including from `bin/cuniform build` — both plain
-and `--dry-run` — but only produce the routes T17's current template set can render (posts and
-pages; T17's remaining templates are still unbuilt, so no index/tag/series/archive/search/404
-route is generated yet). Deliberately not built in the Resolve stage, matching this project's
-"don't build ahead of a consumer" convention (see `ResolvedSite`'s docblock): tag/series
-indexes and prev/next (nothing renders them until T17 finishes and T20 exists), and compiling
-`aliases` into `redirects.map` (that's T21's own task — the `aliases`-collides-with-a-route
-*validation* SPEC §5.5 requires is still enforced now, since it doesn't need the map itself).
-A plain (non-`--dry-run`) build writes a complete release tree under `releases/<timestamp>/`
-but never touches `public/` — Verify/Deploy are T22-T23, so `--rollback` still reports
-not implemented. `config/lang/{de,en}.php` are now populated for real (`updated_on` plus the
-`month_01`..`month_12` fallback table T15 needs).
+**T19 scope note (as of this task; T17/T22/T23 later filled every gap named below):** stages
+1-6 run for real, including from `bin/cuniform build` — both plain and `--dry-run` — but only
+produce the routes T17's *then*-current template set could render (posts and pages; T17's
+remaining templates were still unbuilt at this point, so no index/tag/series/archive/search/404
+route was generated yet — T17 later closed this). Deliberately not built in the Resolve stage,
+matching this project's "don't build ahead of a consumer" convention (see `ResolvedSite`'s
+docblock): tag/series indexes and prev/next (nothing rendered them until T17 finished and T20
+existed — T17 ultimately built this as `ListingResolver`, kept separate from `ResolvedSite`
+rather than added to it; see T17's own note), and compiling `aliases` into `redirects.map`
+(that was T21's own task — the `aliases`-collides-with-a-route *validation* SPEC §5.5 requires
+was still enforced at this point, since it didn't need the map itself). A plain
+(non-`--dry-run`) build writes a complete release tree under `releases/<timestamp>/` but at
+this point never touched `public/` — Verify/Deploy were T22-T23, so `--rollback` still reported
+not implemented until T23. `config/lang/{de,en}.php` are now populated for real (`updated_on`
+plus the `month_01`..`month_12` fallback table T15 needs).
 
 **T20 note:** BUILD-ORDER lists no explicit acceptance criteria for T20 (or T21); scope was
 derived directly from §11, which is unambiguous about what each artifact must contain. `noindex`
@@ -214,13 +270,10 @@ elements and expands bare boolean attributes (`<video controls>` → `controls="
 valid HTML5, invalid XML, and something `VideoHandler` genuinely emits) before parsing as
 strict XML, which reliably catches real tag-mismatch bugs.
 
-One deliberate, documented carve-out: `InternalLinkChecker` treats a link to a bare language
-home path (`/en/`, `/de/`) as a warning, not a build-blocking error. Every current template
-that builds a `HreflangSet` points `x-default` at exactly that path (SPEC §7.5), but no route
-generates it yet — T17's `index.php` remains unbuilt — so on any multi-language site it can
-never resolve *by construction* today. Treating it as fatal would make full verification
-permanently unpassable rather than catching a real mistake. Remove the carve-out once T17
-builds the home route; a genuinely broken authored link still fails the build today.
+~~One deliberate, documented carve-out: `InternalLinkChecker` treats a link to a bare language
+home path (`/en/`, `/de/`) as a warning, not a build-blocking error.~~ **Resolved in T17:**
+`index.php` now generates the home route for every configured language, so the carve-out was
+removed — see the T17 note below. A genuinely broken authored link still fails the build.
 
 The URL-scheme-change guard and the page-count-drop guard both need something to compare
 against; deploy (`public/`'s symlink) doesn't exist yet (T23), so `UrlSchemeGuard` persists a

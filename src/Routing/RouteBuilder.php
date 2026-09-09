@@ -7,11 +7,16 @@ namespace Cuniform\Routing;
 use Cuniform\Config\UrlPrefix;
 
 /**
- * `{L}` substitution and per-document route paths (SPEC §7.4, §8.1). Scoped
- * to what a single document needs — a post's permalink pattern, a page's
- * directory-mirrored path — not the corpus-wide generated routes (index,
- * pagination, tag/series/archive, feeds, search, 404), which depend on
- * aggregated data (tags, years, series) no component builds yet.
+ * `{L}` substitution and per-document route paths (SPEC §7.4, §8.1) — a
+ * post's permalink pattern, a page's directory-mirrored path — plus the
+ * generated-listing routes (index/pagination, tag/series/archive, search,
+ * per-language 404) once ListingResolver (T17) has the aggregated data
+ * (tags, years, series) those depend on. These never go through
+ * RouteTable::register(): every one of them starts with a reserved word
+ * (SPEC §8.2's own reserved-slug list — `tag`, `series`, `archive`,
+ * `page`, `search`), so a real content document can never collide with
+ * one by construction, and the generated set can't collide with itself
+ * either (language × kind × identifier is always distinct).
  */
 final class RouteBuilder
 {
@@ -77,5 +82,56 @@ final class RouteBuilder
         $firstSegment = explode('/', $relative, 2)[0];
 
         return ['/' . $this->prefixFor($language) . $relative, $firstSegment];
+    }
+
+    /**
+     * `/{L}` for page 1, `/{L}page/2/` for subsequent pages (SPEC §8.1's
+     * route table names exactly this pair for the post index; tag archives
+     * reuse the same `page/N/` suffix — not spelled out verbatim in §8.1,
+     * but the only pattern consistent with it once a tag archive can also
+     * span more than one page).
+     */
+    public function indexRoute(string $language, int $page): string
+    {
+        return $this->paginatedRoute($language, '', $page);
+    }
+
+    public function tagRoute(string $language, string $tagSlug, int $page): string
+    {
+        return $this->paginatedRoute($language, "tag/{$tagSlug}/", $page);
+    }
+
+    /** Not paginated (SPEC §8.1 only calls out the tag archive as such). */
+    public function seriesRoute(string $language, string $seriesSlug): string
+    {
+        return '/' . $this->prefixFor($language) . "series/{$seriesSlug}/";
+    }
+
+    /** Not paginated (SPEC §8.1 only calls out the tag archive as such). */
+    public function archiveRoute(string $language, int $year): string
+    {
+        return '/' . $this->prefixFor($language) . "archive/{$year}/";
+    }
+
+    public function searchRoute(string $language): string
+    {
+        return '/' . $this->prefixFor($language) . 'search/';
+    }
+
+    /**
+     * `/{L}404.html` (SPEC §8.1, §7.12) — only meaningful when $language is
+     * actually prefixed; an unprefixed single-language site has no
+     * per-language error document, only the neutral root one (§7.12).
+     */
+    public function errorRoute(string $language): string
+    {
+        return '/' . $this->prefixFor($language) . '404.html';
+    }
+
+    private function paginatedRoute(string $language, string $base, int $page): string
+    {
+        $suffix = $page <= 1 ? '' : "page/{$page}/";
+
+        return '/' . $this->prefixFor($language) . $base . $suffix;
     }
 }

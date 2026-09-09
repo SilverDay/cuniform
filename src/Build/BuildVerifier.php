@@ -50,10 +50,7 @@ final class BuildVerifier
         ));
         $errors = [...$errors, ...(new WellFormednessChecker())->check($pages, $xmlArtifacts)];
 
-        $linkResult = (new InternalLinkChecker($this->config->baseUrl, $this->config->languages))
-            ->check($pages, $knownPaths);
-        $errors   = [...$errors, ...$linkResult['errors']];
-        $warnings = [...$warnings, ...$linkResult['warnings']];
+        $errors = [...$errors, ...(new InternalLinkChecker($this->config->baseUrl))->check($pages, $knownPaths)];
 
         $errors = [...$errors, ...(new RedirectTargetChecker())->check($redirects, $knownPaths)];
 

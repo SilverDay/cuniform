@@ -10,17 +10,21 @@ use PHPUnit\Framework\TestCase;
 
 final class AssetFingerprinterTest extends TestCase
 {
+    private string $dir;
     private string $path;
 
     protected function setUp(): void
     {
-        $this->path = tempnam(sys_get_temp_dir(), 'cuniform_css_') . '.css';
+        $this->dir  = sys_get_temp_dir() . '/cuniform_asset_' . uniqid();
+        $this->path = $this->dir . '/style.css';
+        mkdir($this->dir, 0o755, true);
         file_put_contents($this->path, 'body { color: red; }');
     }
 
     protected function tearDown(): void
     {
         @unlink($this->path);
+        @rmdir($this->dir);
     }
 
     public function testFilenameIsStableForTheSameContent(): void
@@ -41,6 +45,19 @@ final class AssetFingerprinterTest extends TestCase
         [, $urlAfter] = (new AssetFingerprinter())->fingerprint($this->path);
 
         self::assertNotSame($urlBefore, $urlAfter);
+    }
+
+    public function testFilenameIsDerivedFromTheSourceFileItself(): void
+    {
+        $jsPath = $this->dir . '/search.js';
+        file_put_contents($jsPath, 'console.log(1);');
+
+        [$file, $url] = (new AssetFingerprinter())->fingerprint($jsPath);
+
+        self::assertMatchesRegularExpression('/^\/search\.[0-9a-f]{8}\.js$/', $url);
+        self::assertSame(ltrim($url, '/'), $file->relativePath);
+
+        @unlink($jsPath);
     }
 
     public function testMissingSourceIsABuildError(): void

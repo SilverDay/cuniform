@@ -84,6 +84,44 @@ final class BuildPipelineTest extends TestCase
         self::assertFileExists($result->releaseDir . '/media/2026/03/photo.jpg');
     }
 
+    public function testGeneratedListingRoutesRenderForTheFixtureCorpus(): void
+    {
+        $pipeline = new BuildPipeline($this->config(self::REAL_TEMPLATES), self::LANG_DIR);
+        $result   = $pipeline->run(new BuildOptions());
+        self::assertNotNull($result->releaseDir);
+
+        $deHome = $this->read($result->releaseDir, '/de/');
+        self::assertStringContainsString('Sicherheitskultur', $deHome, 'the home index must list the language\'s own posts');
+
+        $enHome = $this->read($result->releaseDir, '/en/');
+        self::assertStringContainsString('Security Culture', $enHome);
+
+        $deTag = $this->read($result->releaseDir, '/de/tag/awareness/');
+        self::assertStringContainsString('Sicherheitskultur', $deTag);
+        self::assertStringNotContainsString('Security Culture', $deTag, 'tags are language-scoped (SPEC §7.10)');
+
+        $enArchive = $this->read($result->releaseDir, '/en/archive/2026/');
+        self::assertStringContainsString('Security Culture', $enArchive);
+
+        $enSearch = $this->read($result->releaseDir, '/en/search/');
+        self::assertStringContainsString('data-lang="en"', $enSearch);
+        $matched = preg_match('/src="(\/search\.[0-9a-f]{8}\.js)"/', $enSearch, $jsMatch);
+        self::assertSame(1, $matched, 'search page must link the fingerprinted search script');
+        self::assertFileExists($result->releaseDir . $jsMatch[1]);
+
+        self::assertFileExists($result->releaseDir . '/de/404.html');
+        $de404 = (string) file_get_contents($result->releaseDir . '/de/404.html');
+        self::assertStringContainsString('nav-primary', $de404, 'per-language 404 uses the normal layout/nav chain');
+
+        $neutral404 = (string) file_get_contents($result->releaseDir . '/404.html');
+        self::assertStringContainsString('lang="de"', $neutral404);
+        self::assertStringContainsString('lang="en"', $neutral404);
+
+        $sitemap = (string) file_get_contents($result->releaseDir . '/sitemap.xml');
+        self::assertStringContainsString('<loc>https://blog.silverday.de/de/</loc>', $sitemap);
+        self::assertStringContainsString('<loc>https://blog.silverday.de/de/tag/awareness/</loc>', $sitemap);
+    }
+
     public function testEmitStageWritesFeedsSitemapSearchIndexRobotsAndSecurityTxt(): void
     {
         $pipeline = new BuildPipeline($this->config(self::REAL_TEMPLATES), self::LANG_DIR);
@@ -170,13 +208,14 @@ final class BuildPipelineTest extends TestCase
 
     public function testATemplateErrorAbortsTheBuildWithNoOutputWritten(): void
     {
-        // A real style.css (so the Emit stage's asset fingerprinting succeeds
-        // and doesn't mask the failure this test actually wants to exercise),
-        // but no page.php/post.php/layout.php — the first template render
-        // must fail with nothing written.
+        // Real style.css/search.js (so the Emit stage's asset fingerprinting
+        // succeeds and doesn't mask the failure this test actually wants to
+        // exercise), but no page.php/post.php/layout.php — the first
+        // template render must fail with nothing written.
         $brokenTemplatesDir = $this->scratchDir . '/broken-templates';
         mkdir($brokenTemplatesDir, 0o755, true);
         copy(self::REAL_TEMPLATES . '/style.css', $brokenTemplatesDir . '/style.css');
+        copy(self::REAL_TEMPLATES . '/search.js', $brokenTemplatesDir . '/search.js');
 
         $pipeline = new BuildPipeline($this->config($brokenTemplatesDir), self::LANG_DIR);
 

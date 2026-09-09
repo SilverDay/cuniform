@@ -14,8 +14,11 @@ use Cuniform\Template\TemplateResolver;
 
 /**
  * Orchestrates stages 1-9 (SPEC §10.1: Lock, Discover, Parse, Resolve,
- * Render, Template, Emit — feeds/sitemap/search-index/robots/security.txt/
- * assets via ArtifactStage, T20; the compiled redirects.conf via
+ * Render, Template — SiteTemplateStage renders one page per ResolvedDocument,
+ * ListingTemplateStage renders the generated-listing routes (index/tag/
+ * series/archive/search/404) from the aggregated ListingSet ListingResolver
+ * builds, T17; Emit — feeds/sitemap/search-index/robots/security.txt/assets
+ * via ArtifactStage, T20; the compiled redirects.conf via
  * RedirectMapCompiler/RedirectMapGenerator, T21; media copying and Verify
  * via MediaCopier/BuildVerifier, T22; the atomic deploy and release
  * pruning via ReleaseDeployer, T23 — Emit and redirect compilation are
@@ -80,14 +83,16 @@ final class BuildPipeline
             $renderedByIdentifier[$document->parsed->identifier()] = $documentRenderer->render($document, $includedPages);
         }
 
-        $artifacts = (new ArtifactStage($this->config))->build($site, $renderedByIdentifier, $now);
+        $strings       = UiStringCatalogue::load($this->langDir, $this->config->languages);
+        $dateFormatter = new DateFormatter($strings);
+        $listing       = (new ListingResolver($this->config, $dateFormatter))->resolve($site);
+
+        $artifacts = (new ArtifactStage($this->config))->build($site, $listing, $renderedByIdentifier, $now);
 
         $manualRedirects = (new RedirectMapParser())->parse(rtrim($this->config->paths->content, '/') . '/redirects.map');
         $redirects       = (new RedirectMapCompiler())->compile($site, $manualRedirects);
         $redirectsFile   = (new RedirectMapGenerator($this->config))->generate($redirects['entries']);
 
-        $strings          = UiStringCatalogue::load($this->langDir, $this->config->languages);
-        $dateFormatter    = new DateFormatter($strings);
         $templateResolver = new TemplateResolver($this->config->paths->templates);
         $templateStage    = new SiteTemplateStage(
             $this->config,
@@ -96,11 +101,21 @@ final class BuildPipeline
             $dateFormatter,
             $artifacts['stylesheetUrl'],
         );
+        $listingStage = new ListingTemplateStage(
+            $this->config,
+            $templateResolver,
+            $strings,
+            $artifacts['stylesheetUrl'],
+            $artifacts['searchScriptUrl'],
+        );
 
         // Every template renders to a string here, entirely in memory, before
         // anything is written to disk — a template error propagates from
         // build() with zero filesystem side effects (SPEC §9 rule 6).
-        $pages = $templateStage->build($site, $renderedByIdentifier);
+        $pages = [
+            ...$templateStage->build($site, $renderedByIdentifier),
+            ...$listingStage->build($listing, $site->navByLanguage),
+        ];
 
         $allFiles    = [...$artifacts['files'], $redirectsFile];
         $mediaCopier = new MediaCopier($this->config->paths->content);

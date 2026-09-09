@@ -21,8 +21,10 @@ final class TemplateResolverTest extends TestCase
     {
         $resolver = new TemplateResolver('/srv/templates');
 
+        // Deliberately absent — see TemplateResolver's own docblock: feeds
+        // are built directly by FeedGenerator, never through a template.
         $this->expectException(RenderException::class);
-        $resolver->resolve('index.php');
+        $resolver->resolve('feed.xml.php');
     }
 
     public function testRejectsAPathTraversalAttempt(): void

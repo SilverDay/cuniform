@@ -11,16 +11,17 @@ use Cuniform\Template\NavItem;
  * this build, plus the per-language nav trees built from the same set
  * (SPEC §6.2, §6.3).
  *
- * What SPEC §10.1 also lists for this stage — tag/series indexes, prev/next,
- * and compiling `aliases` into `redirects.map` — is deliberately not built
- * here yet: nothing consumes it. No tag.php/series.php template exists (T17
- * remains partial), and redirect *compilation* is T21's own task, not this
- * one's; the `aliases` validation this stage *does* need (SPEC §5.5: an
- * alias must not collide with a real route) doesn't require building the
- * map itself. Building that data now, ahead of a consumer, would be the
- * exact kind of speculative structure this project's conventions ask not to
- * add — same reasoning IncludedPageRepository was left as an interface
- * until T19 had a concrete corpus to resolve against.
+ * Tag/series indexes and year archives — also listed under this stage by
+ * SPEC §10.1 — are deliberately NOT built here: ListingResolver reads this
+ * class's own `documents` a second time to build them (T17), once
+ * ListingTemplateStage existed as a consumer. Keeping that out of
+ * SiteResolver/ResolvedSite avoids coupling routing/hreflang/nav
+ * resolution (needed by every document, every build) to listing
+ * aggregation (needed only by the generated-listing routes); see
+ * ListingSet's own docblock. Redirect *compilation* is T21's own task,
+ * not this one's; the `aliases` validation this stage *does* need
+ * (SPEC §5.5: an alias must not collide with a real route) doesn't
+ * require building the map itself.
  */
 final class ResolvedSite
 {

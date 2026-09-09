@@ -15,31 +15,28 @@ final class InternalLinkCheckerTest extends TestCase
         $pages = [new GeneratedFile('/de/a/', '<a href="/de/b/">b</a>')];
         $known = ['de/b/index.html' => true];
 
-        $result = $this->check($pages, $known);
-
-        self::assertSame([], $result['errors']);
-        self::assertSame([], $result['warnings']);
+        self::assertSame([], $this->check($pages, $known));
     }
 
     public function testAnUnresolvableLinkIsAnError(): void
     {
         $pages = [new GeneratedFile('/de/a/', '<a href="/de/missing/">x</a>')];
 
-        $result = $this->check($pages, []);
+        $errors = $this->check($pages, []);
 
-        self::assertNotSame([], $result['errors']);
-        self::assertStringContainsString('/de/a/', $result['errors'][0]);
-        self::assertStringContainsString('/de/missing/', $result['errors'][0]);
+        self::assertNotSame([], $errors);
+        self::assertStringContainsString('/de/a/', $errors[0]);
+        self::assertStringContainsString('/de/missing/', $errors[0]);
     }
 
     public function testAMissingMediaSrcIsAnError(): void
     {
         $pages = [new GeneratedFile('/de/a/', '<img src="/media/2026/03/missing.jpg">')];
 
-        $result = $this->check($pages, []);
+        $errors = $this->check($pages, []);
 
-        self::assertNotSame([], $result['errors']);
-        self::assertStringContainsString('/media/2026/03/missing.jpg', $result['errors'][0]);
+        self::assertNotSame([], $errors);
+        self::assertStringContainsString('/media/2026/03/missing.jpg', $errors[0]);
     }
 
     public function testAbsoluteBaseUrlLinksAreCheckedTheSameAsRootRelativeOnes(): void
@@ -47,9 +44,7 @@ final class InternalLinkCheckerTest extends TestCase
         $pages = [new GeneratedFile('/de/a/', '<a href="https://blog.silverday.de/de/b/">b</a>')];
         $known = ['de/b/index.html' => true];
 
-        $result = $this->check($pages, $known);
-
-        self::assertSame([], $result['errors']);
+        self::assertSame([], $this->check($pages, $known));
     }
 
     public function testExternalMailtoAndFragmentLinksAreIgnored(): void
@@ -59,30 +54,25 @@ final class InternalLinkCheckerTest extends TestCase
             '<a href="https://example.com/">ext</a><a href="mailto:a@example.com">m</a><a href="#toc">frag</a>'
         )];
 
-        $result = $this->check($pages, []);
-
-        self::assertSame([], $result['errors']);
-        self::assertSame([], $result['warnings']);
+        self::assertSame([], $this->check($pages, []));
     }
 
-    public function testABareLanguageHomeLinkIsAWarningNotAnError(): void
+    public function testABareLanguageHomeLinkIsCheckedLikeAnyOtherLink(): void
     {
-        $pages = [new GeneratedFile('/de/a/', '<a href="/en/">home</a>')];
+        $resolved = [new GeneratedFile('/de/a/', '<a href="/en/">home</a>')];
+        self::assertSame([], $this->check($resolved, ['en/index.html' => true]));
 
-        $result = $this->check($pages, []);
-
-        self::assertSame([], $result['errors']);
-        self::assertNotSame([], $result['warnings']);
-        self::assertStringContainsString('/en/', $result['warnings'][0]);
+        $unresolved = [new GeneratedFile('/de/a/', '<a href="/en/">home</a>')];
+        self::assertNotSame([], $this->check($unresolved, []));
     }
 
     /**
      * @param  list<GeneratedFile>  $pages
      * @param  array<string, true>  $known
-     * @return array{errors: list<string>, warnings: list<string>}
+     * @return list<string>
      */
     private function check(array $pages, array $known): array
     {
-        return (new InternalLinkChecker('https://blog.silverday.de', ['de', 'en']))->check($pages, $known);
+        return (new InternalLinkChecker('https://blog.silverday.de'))->check($pages, $known);
     }
 }

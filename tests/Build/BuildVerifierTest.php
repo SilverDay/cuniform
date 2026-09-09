@@ -60,13 +60,18 @@ final class BuildVerifierTest extends TestCase
         $this->verifier()->verify([], $artifacts, [], [], false);
     }
 
-    public function testHomePageLinkIsAWarningNotAFailure(): void
+    public function testHomePageLinkIsCheckedLikeAnyOtherLink(): void
     {
-        $pages = [new GeneratedFile('/de/a/', '<a href="/en/">home</a>')];
+        // ListingTemplateStage (T17) generates the home route for real now,
+        // so a link to it is no longer a special case — it must resolve
+        // exactly like any other internal link, and fails when it doesn't.
+        $pages       = [new GeneratedFile('/de/a/', '<a href="/en/">home</a>')];
+        $indexAsPage = new GeneratedFile('/en/', '<!DOCTYPE html><html><body>home</body></html>');
 
-        $warnings = $this->verifier()->verify($pages, [], [], [], false);
+        self::assertSame([], $this->verifier()->verify([...$pages, $indexAsPage], [], [], [], false));
 
-        self::assertNotSame([], $warnings);
+        $this->expectException(BuildException::class);
+        $this->verifier()->verify($pages, [], [], [], false);
     }
 
     private function verifier(): BuildVerifier

@@ -9,8 +9,9 @@ use Cuniform\Render\RenderedDocument;
 
 /**
  * Stage 7 — Emit (SPEC §10.1, §11): feeds, the sitemap, the search index,
- * robots.txt, security.txt, and the fingerprinted stylesheet. Orchestrates
- * the individual generators rather than doing the work itself — each one is
+ * robots.txt, security.txt, and the fingerprinted static assets
+ * (stylesheet, client-side search script). Orchestrates the individual
+ * generators rather than doing the work itself — each one is
  * independently testable against a ResolvedSite/rendered-document map.
  */
 final class ArtifactStage
@@ -21,9 +22,9 @@ final class ArtifactStage
 
     /**
      * @param  array<string, RenderedDocument> $renderedByIdentifier
-     * @return array{files: list<ArtifactFile>, warnings: list<string>, stylesheetUrl: string}
+     * @return array{files: list<ArtifactFile>, warnings: list<string>, stylesheetUrl: string, searchScriptUrl: string}
      */
-    public function build(ResolvedSite $site, array $renderedByIdentifier, \DateTimeImmutable $now): array
+    public function build(ResolvedSite $site, ListingSet $listing, array $renderedByIdentifier, \DateTimeImmutable $now): array
     {
         $files    = [];
         $warnings = [];
@@ -32,7 +33,7 @@ final class ArtifactStage
             $files[] = $feedFile;
         }
 
-        $files[] = (new SitemapGenerator($this->config))->generate($site);
+        $files[] = (new SitemapGenerator($this->config))->generate($site, $listing);
 
         [$searchIndexFile, $searchIndexWarnings] = (new SearchIndexGenerator($this->config))->generate($site, $renderedByIdentifier);
         $files[]  = $searchIndexFile;
@@ -41,10 +42,19 @@ final class ArtifactStage
         $files[] = (new RobotsTxtGenerator($this->config))->generate();
         $files[] = (new SecurityTxtGenerator($this->config))->generate($now);
 
-        $stylesheetSource = rtrim($this->config->paths->templates, '/') . '/style.css';
-        [$cssFile, $stylesheetUrl] = (new AssetFingerprinter())->fingerprint($stylesheetSource);
+        $fingerprinter = new AssetFingerprinter();
+
+        [$cssFile, $stylesheetUrl] = $fingerprinter->fingerprint(rtrim($this->config->paths->templates, '/') . '/style.css');
         $files[] = $cssFile;
 
-        return ['files' => $files, 'warnings' => $warnings, 'stylesheetUrl' => $stylesheetUrl];
+        [$jsFile, $searchScriptUrl] = $fingerprinter->fingerprint(rtrim($this->config->paths->templates, '/') . '/search.js');
+        $files[] = $jsFile;
+
+        return [
+            'files'           => $files,
+            'warnings'        => $warnings,
+            'stylesheetUrl'   => $stylesheetUrl,
+            'searchScriptUrl' => $searchScriptUrl,
+        ];
     }
 }
