@@ -542,7 +542,7 @@ correct and needs no change.
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
 | T34 | [x] | WXR streaming parser with external entities disabled | — | §A.1 |
-| T35 | [ ] | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34 | §A.3 |
+| T35 | [x] | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34 | §A.3 |
 | T36 | [ ] | Media downloader with host allow-list and checksums | T34 | §A.3 |
 | T37 | [ ] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
 | T38 | [ ] | Verification: count reconciliation, URL diff, word-count tolerance, migration report | T37 | §A.4 |
@@ -607,6 +607,70 @@ matter.
 
 **T35 acceptance:** the converter never emits raw HTML into a `.md` file. An unknown
 shortcode appears in both the output file and the report — never dropped silently.
+
+**T35 note:** four new classes in `src/Import/`, one per §A.3 pipeline step between "strip
+block comments" and "map WP shortcodes" inclusive — `GutenbergBlockStripper`,
+`WpautopNormalizer`, `WpShortcodeConverter`, and `HtmlToMarkdownConverter` (the orchestrator,
+which also does the actual DOM walk). Scope is deliberately Md2Html's own supported-construct
+list (headings, lists, blockquotes, fenced code, bold/italic/strikethrough/code spans, links,
+images, hard breaks, `<hr>`) plus the three WP shortcode mappings SPEC §A.3 names by name
+(`[caption]`→`[figure]`, `[gallery]`→ repeated `[figure]`, `[embed]`→`[embed]`) — nothing
+attempts tables (Md2Html supports GFM pipe tables, but converting arbitrary `<table>` markup
+into one correctly, including `colspan`/`rowspan`, is real additional scope with zero evidence
+of need — see below — so a `<table>` is treated as an unsupported block like any other: text
+kept, tag dropped, reported).
+
+Validated the same way T34 was: against the operator's real export before considering this
+done, not just synthetic fixtures. All six real posts convert with **zero** warnings — the
+corpus genuinely is as tractable as T34's pre-work suggested (plain paragraphs/headings/lists/
+links/bold, no shortcodes, no images) — and one real post's output was fed back through the
+actual `Cuniform\Render\Md2Html` renderer to confirm a full round trip: the original `<a
+href="...">http://www.meekro.com</a>` came back out as a semantically identical `<a>` tag
+(plus Cuniform's own external-link `target="_blank" rel="noopener noreferrer"` enhancement,
+a bonus, not a regression). None of this real-corpus content is committed, same as T34 — T35's
+own tests use small inline HTML snippets rather than fixture files, since a converter test's
+input and expected output are more readable sitting right next to each other than round-tripped
+through a shared XML fixture.
+
+Two real bugs, not just design choices, were caught by writing tests immediately after the
+ad hoc real-corpus check rather than trusting the design once it looked right:
+
+1. **Inline content sitting directly inside a block container with no `<p>` wrapper was
+   mis-routed through block-level handling**, turning `<div><span>red text</span> normal</div>`
+   into two separate paragraphs instead of one flowing line. This is the DOM-level version of
+   the same problem `WpautopNormalizer` solves at the text level (SPEC §A.2's "wpautop
+   newlines"), and needed the same fix at this layer: `convertBlockChildren()` now buffers
+   consecutive non-block children (text nodes, inline elements) and flushes them as one
+   implicit paragraph, rather than dispatching every child through block-level handling
+   unconditionally. This also *simplified* `handleUnsupportedBlock()`, which no longer needs
+   its own "does this have a block child" branch — `convertBlockChildren()` is correct for
+   both cases now, uniformly.
+2. **`<script>`/`<style>` content leaked into the output** the first time a script+style
+   fixture was actually run, because neither tag was in the block-tag list `convertBlockChildren`
+   dispatches on — they fell through to the *inline* path instead, where the generic
+   "unsupported inline element" handler recurses into children and keeps their text content,
+   which for `<script>`/`<style>` is code, not prose. Fixed by adding both to the block-tag
+   list (so they reach the block-level drop-entirely branch) plus a matching guard in the
+   inline-element handler as defence in depth, in case a future DOM shape nests one somewhere
+   this class doesn't expect.
+
+One more class involved indirectly: `WpShortcodeConverter`'s generic "unknown shortcode"
+report initially flagged `[figure ...]` — its own output for a mapped `[caption]` — as
+"unknown," because the exclusion list only named WordPress's own shortcode names (`caption`,
+`gallery`, `embed`), not Cuniform's (`figure`, `video`, `embed`, `details`, `note`, `toc`,
+`include`). By the time that check runs, a `[figure ...]`/`[embed ...]` in the text is just as
+likely to be this class's *own* output as WordPress content that happened to reuse a name —
+either way it's recognized, not unknown. Both exclusion lists are now kept, named for what
+they actually are.
+
+Deliberately unescaped, documented as a known, accepted gap rather than solved: bracket text
+(`[`/`]`) and Markdown-special characters (`*`, `_`, `#`, backtick, ...) inside plain prose are
+left exactly as extracted, because escaping brackets would corrupt `WpShortcodeConverter`'s own
+shortcode output surviving the same DOM walk, and Md2Html has no backslash-escape syntax to
+safely neutralize the rest even if this class tried. Not present anywhere in the real export
+(confirmed, not assumed), so this is a real but currently-inert limitation — worth revisiting
+if a future export actually has prose containing literal `[bracket text]` or a line starting
+with a Markdown-significant character.
 
 **T38 acceptance:** the import is idempotent — running it twice against the same export
 produces identical output. Any count delta between export and generated files is a hard failure.
