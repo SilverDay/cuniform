@@ -26,6 +26,24 @@ final class BuildException extends CuniformException
         );
     }
 
+    public static function alreadyLocked(string $lockPath): self
+    {
+        return new self("Another build is already running (lock held: {$lockPath}) — SPEC §10.1");
+    }
+
+    public static function imageDoesNotResolve(string $identifier, string $image): self
+    {
+        return new self("'{$identifier}': image '{$image}' does not resolve to a file under content/ (SPEC §5.5)");
+    }
+
+    public static function aliasCollidesWithRoute(string $identifier, string $alias): self
+    {
+        return new self(
+            "'{$identifier}': alias '{$alias}' collides with a real route — an alias may never "
+            . 'shadow a page or post that actually exists (SPEC §5.5)'
+        );
+    }
+
     /**
      * @param list<string> $errors
      */

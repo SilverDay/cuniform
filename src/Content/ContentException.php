@@ -79,4 +79,24 @@ final class ContentException extends CuniformException
 
         return new self("Invalid front matter in {$label}:\n" . implode("\n", $lines));
     }
+
+    /**
+     * @param list<string> $errors
+     */
+    public static function discoveryFailed(array $errors): self
+    {
+        $lines = array_map(static fn (string $error): string => '- ' . $error, $errors);
+
+        return new self("Content discovery failed:\n" . implode("\n", $lines));
+    }
+
+    /**
+     * @param list<string> $errors
+     */
+    public static function parsingFailed(array $errors): self
+    {
+        $lines = array_map(static fn (string $error): string => '- ' . $error, $errors);
+
+        return new self("Front matter parsing failed:\n" . implode("\n", $lines));
+    }
 }

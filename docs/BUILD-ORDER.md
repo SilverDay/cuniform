@@ -114,7 +114,7 @@ than `strftime()` or system locale data (§7.9).
 | T16 | [x] | ViewModel objects and escaping helpers `e`/`eAttr`/`eUrl`/`eJs`; escaping lint in `make lint` | T7 | §9 |
 | T17 | [ ] | Template set: layout, post, page, index, tag, series, archive, search, 404, feed | T14, T16 | §9 |
 | T18 | [x] | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap | T12 | §6.2, §6.3 |
-| T19 | [ ] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
+| T19 | [x] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
 | T20 | [ ] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
 | T21 | [ ] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
 | T22 | [ ] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
@@ -146,6 +146,19 @@ warning, not a build failure. `nav_parent` overrides directory position when giv
 
 **T19 acceptance:** a second concurrent build is rejected by `flock`, not queued. A template
 error aborts the build with no output written.
+
+**T19 scope note:** stages 1-6 run for real, including from `bin/cuniform build` — both plain
+and `--dry-run` — but only produce the routes T17's current template set can render (posts and
+pages; T17's remaining templates are still unbuilt, so no index/tag/series/archive/search/404
+route is generated yet). Deliberately not built in the Resolve stage, matching this project's
+"don't build ahead of a consumer" convention (see `ResolvedSite`'s docblock): tag/series
+indexes and prev/next (nothing renders them until T17 finishes and T20 exists), and compiling
+`aliases` into `redirects.map` (that's T21's own task — the `aliases`-collides-with-a-route
+*validation* SPEC §5.5 requires is still enforced now, since it doesn't need the map itself).
+A plain (non-`--dry-run`) build writes a complete release tree under `releases/<timestamp>/`
+but never touches `public/` — Emit/Verify/Deploy are T20-T23, so `--rollback` still reports
+not implemented. `config/lang/{de,en}.php` are now populated for real (`updated_on` plus the
+`month_01`..`month_12` fallback table T15 needs).
 
 **T22 acceptance:** each verification condition in §10.3 has a test that makes it fire.
 A redirect pointing at a non-existent path blocks the deploy. Changing `url_prefix` without

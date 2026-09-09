@@ -7,4 +7,4 @@ require __DIR__ . '/../src/autoload.php';
 
 use Cuniform\Cli\Application;
 
-exit((new Application())->run(array_slice($argv, 1)));
+exit((new Application(dirname(__DIR__)))->run(array_slice($argv, 1)));

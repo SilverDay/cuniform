@@ -21,3 +21,8 @@ spl_autoload_register(static function (string $class): void {
         require $path;
     }
 });
+
+// Template escaping helpers (e/eAttr/eUrl/eJs) are global functions, not
+// classes — the autoloader above can't reach them. Templates call them bare
+// (SPEC §9), so they must be available wherever a template can run.
+require_once __DIR__ . '/Template/helpers.php';
