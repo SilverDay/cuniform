@@ -33,6 +33,7 @@ final class SiteTemplateStage
         private readonly TemplateResolver $templateResolver,
         private readonly UiStringCatalogue $strings,
         private readonly DateFormatter $dateFormatter,
+        private readonly string $stylesheetUrl,
     ) {
         $this->templateRenderer = new TemplateRenderer();
     }
@@ -59,7 +60,7 @@ final class SiteTemplateStage
             $language = $document->parsed->discovered->language;
             $nav      = $site->navByLanguage[$language] ?? ['primary' => [], 'footer' => []];
 
-            $layout = new LayoutContext($viewModel, $inner, $this->config->title, $nav['primary'], $nav['footer']);
+            $layout = new LayoutContext($viewModel, $inner, $this->config->title, $nav['primary'], $nav['footer'], $this->stylesheetUrl);
             $html   = $this->templateRenderer->render($this->templateResolver->resolve('layout.php'), $layout);
 
             $files[] = new GeneratedFile($document->url, $html);

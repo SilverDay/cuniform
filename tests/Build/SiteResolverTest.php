@@ -150,6 +150,15 @@ final class SiteResolverTest extends TestCase
         self::assertContains('de', $deTargets);
         self::assertContains('en', $deTargets);
         self::assertContains('x-default', $deTargets);
+
+        foreach ($deDoc->hreflang->alternates as $alternate) {
+            self::assertStringStartsWith(
+                'https://blog.silverday.de/',
+                $alternate->url,
+                'hreflang hrefs must be absolute (SPEC §7.5 example) — a bare route path is not a valid href'
+            );
+        }
+        self::assertStringStartsWith('https://blog.silverday.de/', $deDoc->hreflang->canonical);
     }
 
     public function testSingleLanguageSiteHasNoHreflang(): void

@@ -55,7 +55,7 @@ final class ViewModelTest extends TestCase
     {
         $strings = UiStringCatalogue::load($this->langDir, ['de']);
 
-        return new class ($language, 'Title', 'Summary', $canonicalUrl, $hreflang, $strings) extends ViewModel {
+        return new class ($language, 'Title', 'Summary', $canonicalUrl, $hreflang, $strings, false, false, []) extends ViewModel {
         };
     }
 }

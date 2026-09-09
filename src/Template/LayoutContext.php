@@ -23,6 +23,7 @@ final class LayoutContext
         public readonly string $siteTitle,
         public readonly array $primaryNav = [],
         public readonly array $footerNav = [],
+        public readonly string $stylesheetUrl = '/style.css',
     ) {
     }
 }

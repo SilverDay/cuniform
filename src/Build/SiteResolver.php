@@ -128,7 +128,7 @@ final class SiteResolver
 
             $hreflang = $this->buildHreflang($document, $url, $groups, $urlByIdentifier, $statusByIdentifier);
             if ($hreflang !== null) {
-                $hreflangByUrl[$url] = $hreflang;
+                $hreflangByUrl[$this->absoluteUrl($url)] = $hreflang;
             }
 
             $resolved[] = new ResolvedDocument($document, $url, $hreflang);
@@ -245,7 +245,7 @@ final class SiteResolver
         array $statusByIdentifier
     ): ?HreflangSet {
         $language = $document->discovered->language;
-        $current  = new TranslatedDocument($language, $url, $document->frontMatter->shared->status);
+        $current  = new TranslatedDocument($language, $this->absoluteUrl($url), $document->frontMatter->shared->status);
 
         $key = $document->frontMatter->shared->translationKey;
         if ($key === null) {
@@ -277,10 +277,15 @@ final class SiteResolver
                 continue;
             }
 
-            $others[] = new TranslatedDocument($otherLanguage, $otherUrl, $status);
+            $others[] = new TranslatedDocument($otherLanguage, $this->absoluteUrl($otherUrl), $status);
         }
 
         return $this->hreflangSetBuilder->build($current, $others);
+    }
+
+    private function absoluteUrl(string $path): string
+    {
+        return rtrim($this->config->baseUrl, '/') . $path;
     }
 
     /**

@@ -115,7 +115,7 @@ than `strftime()` or system locale data (§7.9).
 | T17 | [ ] | Template set: layout, post, page, index, tag, series, archive, search, 404, feed | T14, T16 | §9 |
 | T18 | [x] | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap | T12 | §6.2, §6.3 |
 | T19 | [x] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
-| T20 | [ ] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
+| T20 | [x] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
 | T21 | [ ] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
 | T22 | [ ] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
 | T23 | [ ] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
@@ -156,9 +156,27 @@ indexes and prev/next (nothing renders them until T17 finishes and T20 exists), 
 `aliases` into `redirects.map` (that's T21's own task — the `aliases`-collides-with-a-route
 *validation* SPEC §5.5 requires is still enforced now, since it doesn't need the map itself).
 A plain (non-`--dry-run`) build writes a complete release tree under `releases/<timestamp>/`
-but never touches `public/` — Emit/Verify/Deploy are T20-T23, so `--rollback` still reports
+but never touches `public/` — Verify/Deploy are T22-T23, so `--rollback` still reports
 not implemented. `config/lang/{de,en}.php` are now populated for real (`updated_on` plus the
 `month_01`..`month_12` fallback table T15 needs).
+
+**T20 note:** BUILD-ORDER lists no explicit acceptance criteria for T20 (or T21); scope was
+derived directly from §11, which is unambiguous about what each artifact must contain. `noindex`
+excludes a document from the sitemap only (§5.2/§11.2) — the page itself still builds and now
+also emits `<meta name="robots" content="noindex">` (a gap in T17's `head.php`, fixed here since
+this task is what first needed `noindex` to actually do something beyond being carried in the
+ViewModel). `security.txt`'s `Contact` reuses `config.mail.notify` rather than a new config key.
+`style.css` — required by §9's Styling section but never written by any earlier task — is
+authored at `templates/style.css` and fingerprinted from there; `LayoutContext` gained a
+`stylesheetUrl` field so `head.php` links the actual fingerprinted file instead of a hardcoded
+`/style.css`. `ViewModel` gained `noindex`/`toc`/`headings` (previously duplicated identically on
+`PostViewModel` and `PageViewModel`) so `head.php` can read `noindex` without an `instanceof`
+check — existing constructor call sites are unaffected, since `PostViewModel`/`PageViewModel`'s
+own public constructor signatures didn't change, only what they forward to `parent::__construct()`.
+Also fixed in this task: `SiteResolver` was building hreflang sets from route-relative paths
+instead of absolute URLs — SPEC §7.5's own example, and the existing T17 template tests, both
+expect an absolute `href`. Caught here because the sitemap needs the same URLs and a
+substring-only assertion in T19's own test hadn't caught the missing scheme/host.
 
 **T22 acceptance:** each verification condition in §10.3 has a test that makes it fire.
 A redirect pointing at a non-existent path blocks the deploy. Changing `url_prefix` without

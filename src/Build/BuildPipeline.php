@@ -13,11 +13,11 @@ use Cuniform\I18n\UiStringCatalogue;
 use Cuniform\Template\TemplateResolver;
 
 /**
- * Orchestrates stages 1-6 (SPEC §10.1: Lock, Discover, Parse, Resolve,
- * Render, Template). Stages 7-9 — Emit (feeds, sitemap, search index,
- * fingerprinted assets), Verify, and the atomic deploy — are T20-T23 and
- * do not happen here: a real (non-dry-run) build writes a complete release
- * tree under `paths.releases/<timestamp>/`, but never touches `public/`.
+ * Orchestrates stages 1-7 (SPEC §10.1: Lock, Discover, Parse, Resolve,
+ * Render, Template, Emit). Stages 8-9 — Verify and the atomic deploy — are
+ * T22-T23 and do not happen here: a real (non-dry-run) build writes a
+ * complete release tree under `paths.releases/<timestamp>/`, but never
+ * touches `public/`.
  */
 final class BuildPipeline
 {
@@ -54,8 +54,10 @@ final class BuildPipeline
         $parser = new DocumentParser($gateway, $frontMatterParser);
         $parsed = $parser->parse($discovered);
 
+        $now = new \DateTimeImmutable();
+
         $resolver = new SiteResolver($this->config);
-        $site     = $resolver->resolve($parsed, new \DateTimeImmutable());
+        $site     = $resolver->resolve($parsed, $now);
 
         $includedPages = array_values(array_filter(
             array_map(static fn (ResolvedDocument $document): ParsedDocument => $document->parsed, $site->documents),
@@ -70,40 +72,60 @@ final class BuildPipeline
             $renderedByIdentifier[$document->parsed->identifier()] = $documentRenderer->render($document, $includedPages);
         }
 
+        $artifacts = (new ArtifactStage($this->config))->build($site, $renderedByIdentifier, $now);
+
         $strings          = UiStringCatalogue::load($this->langDir, $this->config->languages);
         $dateFormatter    = new DateFormatter($strings);
         $templateResolver = new TemplateResolver($this->config->paths->templates);
-        $templateStage    = new SiteTemplateStage($this->config, $templateResolver, $strings, $dateFormatter);
+        $templateStage    = new SiteTemplateStage(
+            $this->config,
+            $templateResolver,
+            $strings,
+            $dateFormatter,
+            $artifacts['stylesheetUrl'],
+        );
 
         // Every template renders to a string here, entirely in memory, before
         // anything is written to disk — a template error propagates from
         // build() with zero filesystem side effects (SPEC §9 rule 6).
-        $files = $templateStage->build($site, $renderedByIdentifier);
+        $pages = $templateStage->build($site, $renderedByIdentifier);
 
-        $releaseDir = $options->dryRun ? null : $this->writeRelease($files);
+        $warnings = [...$site->warnings, ...$artifacts['warnings']];
 
-        return new BuildResult(count($site->documents), count($files), $site->warnings, $releaseDir);
+        $releaseDir = $options->dryRun ? null : $this->writeRelease($pages, $artifacts['files']);
+
+        return new BuildResult(count($site->documents), count($pages), $warnings, $releaseDir);
     }
 
     /**
-     * @param list<GeneratedFile> $files
+     * @param list<GeneratedFile> $pages
+     * @param list<ArtifactFile>  $artifacts
      */
-    private function writeRelease(array $files): string
+    private function writeRelease(array $pages, array $artifacts): string
     {
         $releaseDir = rtrim($this->config->paths->releases, '/') . '/' . (new \DateTimeImmutable())->format('YmdHis');
 
         $this->makeDirectory($releaseDir);
 
-        foreach ($files as $file) {
-            $target = $releaseDir . '/' . $file->relativeFilePath();
-            $this->makeDirectory(dirname($target));
+        foreach ($pages as $page) {
+            $this->writeFile($releaseDir, $page->relativeFilePath(), $page->html);
+        }
 
-            if (file_put_contents($target, $file->html) === false) {
-                throw BuildException::fromErrors(["could not write file: {$target}"]);
-            }
+        foreach ($artifacts as $artifact) {
+            $this->writeFile($releaseDir, $artifact->relativePath, $artifact->contents);
         }
 
         return $releaseDir;
+    }
+
+    private function writeFile(string $releaseDir, string $relativePath, string $contents): void
+    {
+        $target = $releaseDir . '/' . $relativePath;
+        $this->makeDirectory(dirname($target));
+
+        if (file_put_contents($target, $contents) === false) {
+            throw BuildException::fromErrors(["could not write file: {$target}"]);
+        }
     }
 
     private function makeDirectory(string $path): void

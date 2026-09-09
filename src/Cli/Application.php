@@ -10,13 +10,12 @@ use Cuniform\Config\ConfigLoader;
 use Cuniform\CuniformException;
 
 /**
- * Entry point for bin/cuniform. Stages 1-6 (SPEC §10.1) run for real, both
+ * Entry point for bin/cuniform. Stages 1-7 (SPEC §10.1) run for real, both
  * for `--dry-run` (nothing is written to disk) and a plain build (writes a
- * complete release tree under `paths.releases/<timestamp>/`). Stages 7-9 —
- * Emit, Verify, and the atomic deploy into `public/` — are T20-T23 and
- * don't exist yet, so a plain build never touches `public/`, and
- * `--rollback` (which presupposes a deploy to roll back from) stays
- * unimplemented until T23.
+ * complete release tree under `paths.releases/<timestamp>/`). Stages 8-9 —
+ * Verify and the atomic deploy into `public/` — are T22-T23 and don't exist
+ * yet, so a plain build never touches `public/`, and `--rollback` (which
+ * presupposes a deploy to roll back from) stays unimplemented until T23.
  */
 final class Application
 {
@@ -96,7 +95,7 @@ final class Application
         }
 
         fwrite(STDOUT, "cuniform: built {$result->documentCount} documents, {$result->routeCount} routes -> {$result->releaseDir}\n");
-        fwrite(STDOUT, "cuniform: deploy is not implemented yet (see docs/BUILD-ORDER.md, T20-T23) — public/ was not updated\n");
+        fwrite(STDOUT, "cuniform: deploy is not implemented yet (see docs/BUILD-ORDER.md, T22-T23) — public/ was not updated\n");
 
         return 0;
     }

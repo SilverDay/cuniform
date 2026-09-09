@@ -25,10 +25,10 @@ final class PostViewModel extends ViewModel
         public readonly ?string $formattedUpdated,
         public readonly array $tags,
         public readonly ?string $series,
-        public readonly bool $noindex,
-        public readonly bool $toc,
-        public readonly array $headings,
+        bool $noindex,
+        bool $toc,
+        array $headings,
     ) {
-        parent::__construct($language, $title, $summary, $canonicalUrl, $hreflang, $strings);
+        parent::__construct($language, $title, $summary, $canonicalUrl, $hreflang, $strings, $noindex, $toc, $headings);
     }
 }

@@ -17,6 +17,9 @@ use Cuniform\I18n\UiStringCatalogue;
  */
 abstract class ViewModel
 {
+    /**
+     * @param list<array{level: int, id: string, text: string}> $headings
+     */
     public function __construct(
         public readonly string $language,
         public readonly string $title,
@@ -24,6 +27,9 @@ abstract class ViewModel
         public readonly string $canonicalUrl,
         public readonly ?HreflangSet $hreflang,
         private readonly UiStringCatalogue $strings,
+        public readonly bool $noindex,
+        public readonly bool $toc,
+        public readonly array $headings,
     ) {
     }
 

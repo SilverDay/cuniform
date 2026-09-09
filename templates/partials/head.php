@@ -11,6 +11,9 @@ $doc = $layout->page;
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title><?= e($doc->title) ?> — <?= e($layout->siteTitle) ?></title>
 <meta name="description" content="<?= eAttr($doc->summary) ?>">
+<?php if ($doc->noindex) : ?>
+<meta name="robots" content="noindex">
+<?php endif; ?>
 <?php if ($doc->hreflang !== null) : ?>
 <?php foreach ($doc->hreflang->alternates as $alternate) : ?>
 <link rel="alternate" hreflang="<?= eAttr($alternate->hreflang) ?>" href="<?= eUrl($alternate->url) ?>">
@@ -23,4 +26,4 @@ $doc = $layout->page;
 <?php endforeach; ?>
 <?php endif; ?>
 <link rel="canonical" href="<?= eUrl($doc->canonicalUrl) ?>">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="<?= eUrl($layout->stylesheetUrl) ?>">
