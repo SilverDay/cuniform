@@ -1,0 +1,9 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - bin
+        - tests
+    excludePaths:
+        - src/Vendor/*
+    treatPhpDocTypesAsCertain: false

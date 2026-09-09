@@ -1,0 +1,15 @@
+/vendor/
+/var/
+/releases/
+/public
+/content/media/
+/config/site.php
+
+# Real legal-page content carries the operator's name/address/contact details (SPEC §6.4).
+# Only the *.example.md templates are committed; copy one, drop ".example", fill it in.
+/content/pages/*/impressum.md
+/content/pages/*/privacy.md
+/admin/**/*.local.php
+CLAUDE.local.md
+.phpunit.result.cache
+.php-cs-fixer.cache

@@ -1,0 +1,10 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+require __DIR__ . '/../src/autoload.php';
+
+use Cuniform\Cli\Application;
+
+exit((new Application())->run(array_slice($argv, 1)));
