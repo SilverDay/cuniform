@@ -395,9 +395,41 @@ which is a reasonable follow-up but out of this task's scope.
 
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
-| T25 | [ ] | Legacy URL enumeration tooling: crawl the existing site, emit a URL inventory | — | §15.5, §19 item 5 |
+| T25 | [x] | Legacy URL enumeration tooling: crawl the existing site, emit a URL inventory | — | §15.5, §19 item 5 |
 | T26 | [ ] | Legacy snapshot support: carry a frozen static tree through builds without collision | T23, T25 | §15.5 |
 | T27 | [ ] | Apache vhost config, systemd units (build consumer, scheduled-post timer), one-time `public` symlink setup | T23 | §3.2, §10.5, §15.1 |
+
+**T25 note:** BUILD-ORDER lists no explicit acceptance criteria for T25; scope was derived
+directly from §15.5 and §19 item 5, whose own text already draws the boundary: "the complete
+list of live URLs... a crawl of the existing sitemap is the practical source; if the current
+site has no sitemap, a `wget --spider --recursive` run produces one." That's enumeration —
+*which paths exist* — not §15.5's separate `wget --mirror` (T26's job: downloading full pages
+for the frozen-snapshot option). `bin/cuniform legacy-urls <base-url> [--output=<path>]
+[--max-pages=<n>]` is a new, standalone CLI command (`src/Cutover/`, a new namespace for M4's
+tooling) — it never runs as part of `bin/cuniform build` and has nothing to do with the build
+pipeline; `LegacyUrlCrawler::crawl()` tries `{base-url}/sitemap.xml` first (recursing through a
+sitemap index if that's what it finds — common on WordPress, SPEC's own Appendix A assumption,
+e.g. Yoast's `sitemap_index.xml`), and only falls back to a same-host, robots.txt-respecting
+spider when no sitemap exists at all. Output is a JSON `UrlInventory`
+(`var/legacy-urls.json` by default) — path, HTTP status, content type, and discovery method
+per entry; a sitemap-sourced entry carries no status/content-type (SPEC's own text is about
+enumeration, and verifying every sitemap URL would be a second full pass this task doesn't
+need — see LegacyUrlEntry's own docblock).
+
+Built on PHP streams (`file_get_contents` + a stream context), not ext-curl — SPEC §4.2/§15.1
+name no HTTP-client extension as even a soft requirement, and streams need only
+`allow_url_fopen` (PHP's own default). Every network-touching class sits behind the
+`HttpFetcher` interface specifically so `LegacyUrlCrawler`'s own logic — sitemap-index
+recursion, same-host link resolution, robots.txt handling, the max-pages cap, dedup — is
+fully unit-tested against a fake fetcher with zero real network access
+(php-style.md: "No network ... in tests"); `StreamHttpFetcher`, the one class that actually
+opens a socket, is intentionally thin and untested directly, with its one non-trivial piece
+(parsing `$http_response_header`'s possibly-multi-hop shape after a followed redirect) pulled
+out into `HttpResponseHeaderParser`, a pure function that *is* tested. robots.txt handling
+(`RobotsTxt`) is a courtesy, not a SPEC requirement — a deliberately simplified, best-effort
+reader (no wildcards, no per-record multi-agent grouping), documented as such in its own
+docblock; a missing or unparseable robots.txt is always treated as allow-all, never a crawl
+failure.
 
 **T27 acceptance:** ACME renewal succeeds across a deploy — verify by forcing a renewal and
 running a build during the challenge window. The per-language 404 fires inside each prefix and

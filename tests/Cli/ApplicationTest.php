@@ -103,6 +103,28 @@ final class ApplicationTest extends TestCase
         self::assertSame(1, $this->app()->run(['build', '--dry-run']));
     }
 
+    public function testLegacyUrlsWithNoBaseUrlFailsWithUsage(): void
+    {
+        self::assertSame(2, $this->app()->run(['legacy-urls']));
+    }
+
+    public function testLegacyUrlsWithAnUnknownOptionFails(): void
+    {
+        self::assertSame(2, $this->app()->run(['legacy-urls', 'https://legacy.test', '--bogus']));
+    }
+
+    public function testLegacyUrlsFailureFromAMissingConfigIsReportedNotFatal(): void
+    {
+        // Argument parsing happens before config is loaded, and config
+        // loading happens before any network access — this never reaches
+        // the crawler, so it's safe without a real HTTP call (php-style.md:
+        // "No network ... in tests"). The crawler's own behaviour is
+        // covered directly by LegacyUrlCrawlerTest.
+        unlink($this->projectRoot . '/config/site.php');
+
+        self::assertSame(1, $this->app()->run(['legacy-urls', 'https://legacy.test']));
+    }
+
     private function app(): Application
     {
         return new Application($this->projectRoot);

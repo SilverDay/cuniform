@@ -10,6 +10,9 @@ use Cuniform\Build\BuildPipeline;
 use Cuniform\Build\ReleaseDeployer;
 use Cuniform\Config\ConfigLoader;
 use Cuniform\CuniformException;
+use Cuniform\Cutover\LegacyUrlCrawler;
+use Cuniform\Cutover\StreamHttpFetcher;
+use Cuniform\Cutover\UrlInventoryWriter;
 
 /**
  * Entry point for bin/cuniform. Stages 1-9 (SPEC §10.1) run for real, both
@@ -20,6 +23,11 @@ use Cuniform\CuniformException;
  * `--rollback` re-points `public/` at the release before the current one,
  * under the same build lock a build itself would hold, so a rollback and a
  * concurrent build's deploy can never race each other.
+ *
+ * `legacy-urls` (T25, SPEC §15.5/§19 item 5) is unrelated to the build
+ * pipeline — a standalone cutover tool that crawls a live site (its
+ * sitemap if it has one, a same-host spider otherwise) and writes a URL
+ * inventory. Never runs as part of `build`.
  */
 final class Application
 {
@@ -50,6 +58,10 @@ final class Application
 
         $command = array_shift($arguments);
 
+        if ($command === 'legacy-urls') {
+            return $this->legacyUrls($arguments);
+        }
+
         if ($command !== 'build') {
             fwrite(STDERR, "cuniform: unknown command '{$command}'\n" . $this->usage());
 
@@ -72,6 +84,78 @@ final class Application
         }
 
         return $this->build(isset($flags['full']), isset($flags['dry-run']), isset($flags['allow-url-scheme-change']));
+    }
+
+    /**
+     * @param list<string> $arguments
+     */
+    private function legacyUrls(array $arguments): int
+    {
+        if ($arguments === [] || str_starts_with($arguments[0], '--')) {
+            fwrite(STDERR, "cuniform: legacy-urls requires a base URL\n" . $this->usage());
+
+            return 2;
+        }
+
+        $baseUrl  = array_shift($arguments);
+        $output   = null;
+        $maxPages = null;
+
+        foreach ($arguments as $argument) {
+            if (str_starts_with($argument, '--output=')) {
+                $output = substr($argument, strlen('--output='));
+
+                continue;
+            }
+
+            if (str_starts_with($argument, '--max-pages=')) {
+                $maxPages = (int) substr($argument, strlen('--max-pages='));
+
+                continue;
+            }
+
+            fwrite(STDERR, "cuniform: unknown option '{$argument}'\n" . $this->usage());
+
+            return 2;
+        }
+
+        try {
+            $config = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: legacy-urls failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        $outputPath = $output ?? rtrim($config->paths->var, '/') . '/legacy-urls.json';
+        $crawler    = $maxPages !== null
+            ? new LegacyUrlCrawler(new StreamHttpFetcher(), maxPages: $maxPages)
+            : new LegacyUrlCrawler(new StreamHttpFetcher());
+
+        try {
+            $inventory = $crawler->crawl($baseUrl);
+            (new UrlInventoryWriter())->write($inventory, $outputPath);
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: legacy-urls failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        $bySource = [];
+        foreach ($inventory->entries as $entry) {
+            $bySource[$entry->source->value] = ($bySource[$entry->source->value] ?? 0) + 1;
+        }
+
+        $breakdown = implode(', ', array_map(
+            static fn (string $source, int $count): string => "{$count} via {$source}",
+            array_keys($bySource),
+            $bySource
+        ));
+
+        $summary = $breakdown === '' ? '' : " ({$breakdown})";
+        fwrite(STDOUT, 'cuniform: found ' . count($inventory->entries) . " URLs{$summary} -> {$outputPath}\n");
+
+        return 0;
     }
 
     private function rollback(): int
@@ -146,6 +230,7 @@ final class Application
         Usage:
           cuniform build [--full] [--dry-run] [--allow-url-scheme-change]
           cuniform build --rollback
+          cuniform legacy-urls <base-url> [--output=<path>] [--max-pages=<n>]
 
         TXT;
     }
