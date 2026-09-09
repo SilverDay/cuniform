@@ -541,12 +541,69 @@ correct and needs no change.
 
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
-| T34 | [ ] | WXR streaming parser with external entities disabled | — | §A.1 |
+| T34 | [x] | WXR streaming parser with external entities disabled | — | §A.1 |
 | T35 | [ ] | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34 | §A.3 |
 | T36 | [ ] | Media downloader with host allow-list and checksums | T34 | §A.3 |
 | T37 | [ ] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
 | T38 | [ ] | Verification: count reconciliation, URL diff, word-count tolerance, migration report | T37 | §A.4 |
 | T39 | [ ] | Manual review tracking file and checklist workflow | T38 | §A.5 |
+
+**T34 note:** SPEC §A.2's own pre-work checklist was run against the operator's real export
+before writing any code (`~/export/blog-export.xml`, 6 items, ~60 KB — not committed, see
+below) rather than guessed at:
+
+- **Live permalink structure:** date-based (`/YYYY/MM/postname/`, WordPress's "Month and
+  name" setting) for every published post; the two drafts show `?p=<id>` instead, which is
+  normal — a draft has no "live" pretty permalink under any setting until it's published.
+- **Gutenberg vs. Classic:** both, confirmed directly, matching §A.2's own expectation for a
+  long-lived site — 5 of 6 items are Classic (no block comments), one 2018 draft is pure
+  Gutenberg (`<!-- wp:paragraph -->`/`wp:heading`/`wp:list` only — no images, galleries, or
+  embeds in this particular export).
+- **Plugin shortcodes:** none found in any item's `content:encoded` body. `[bracket]`-shaped
+  text does appear elsewhere in the export (Akismet/Jetpack comment-meta keys like
+  `[akismet_history]`), but that's comment metadata, not post content, and comments are never
+  imported at all (§14.4/§A.6) — WxrItem doesn't even expose them.
+- **Non-German content:** all six items are in English, titles and taxonomy alike (channel
+  `<language>` is `en-US`). This wasn't the assumption SPEC's own §6.4 history carried forward
+  from — worth knowing before T37 decides which language tree an imported document lands in,
+  since `en` is also already `default_language` (§19 item 2).
+- Also noted, not part of §A.2's checklist but relevant to T35/T36 later: zero `wp-content/
+  uploads` references and zero `<img>` tags anywhere in this export — T36 (media downloader)
+  has nothing to fetch for this particular corpus, though it should still be built generically
+  since a real host's images not making it into this specific 6-item export doesn't mean the
+  Appendix A pipeline can skip media handling as a capability.
+
+**The export file itself is intentionally not committed anywhere in this repository** — same
+principle as `config/site.php`/the real legal pages (SPEC §6.4, CLAUDE.md's own "Never commit"
+list): it's the operator's real content, sitting outside the repo at `~/export/
+blog-export.xml`. `tests/fixtures/Import/sample.xml` is a synthetic fixture built to exercise
+the same shapes (channel/authors/post/page/attachment/draft-with-null-date/sticky/categories/
+postmeta) without containing anything real.
+
+Implementation: `WxrReader` (`src/Import/`) walks the file with `XMLReader` at depth 2 (direct
+children of `<channel>`), so memory stays bounded to one `<item>` at a time regardless of
+export size — never one `DOMDocument` for the whole file. Each matched element's
+`readOuterXML()` is re-parsed with `simplexml_load_string()` for convenient namespaced field
+access (`wp:`/`content:`/`excerpt:`/`dc:`); this only works because `readOuterXML()` empirically
+re-serializes every namespace declaration a subtree needs onto the element itself, confirmed
+with a throwaway script against the real export before committing to the design, not assumed.
+External entity loading is disabled via `LIBXML_NONET` — explicit intent, not reliance on the
+fact that modern libxml2 already disables external entity *substitution* by default (verified
+both ways with a crafted XXE payload; `WxrReaderTest::testExternalEntityIsNotExpanded` keeps
+that verification as a regression test). A malformed item is **not** caught and skipped
+independently of the rest, unlike `DocumentParser`'s per-document error collection (SPEC
+§5.5) — confirmed empirically that `XMLReader::read()` itself fails at the very first
+well-formedness problem in the *whole* document, however far into it, since a streaming reader
+tokenizes forward from the start; there's no such thing as "one bad item, N-1 good ones" here.
+An early draft had a per-item try/catch modeled on `DocumentParser`'s pattern anyway — removed
+once the empirical test showed it could never actually catch anything, the same lesson T23's
+`ReleaseDeployer` pruning logic already taught this project once.
+
+Deliberately out of scope for this task, left to later M6 tasks: partitioning by
+`wp:post_type`/`wp:status` (publish→published, draft→draft, etc.) and skipping revisions/nav
+items/auto-drafts (§A.3's own "Pipeline" step — T35/T37's job, not this parser's); `WxrReader`
+returns every item the export contains, faithfully, and decides nothing about which of them
+matter.
 
 **T35 acceptance:** the converter never emits raw HTML into a `.md` file. An unknown
 shortcode appears in both the output file and the report — never dropped silently.

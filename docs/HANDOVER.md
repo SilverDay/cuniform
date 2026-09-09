@@ -1,87 +1,91 @@
-# Session Handover — 2026-09-09 (roadmap pivot: M6 pulled forward)
+# Session Handover — 2026-09-09 (T34)
 
-Point-in-time snapshot for picking this work back up, written after a session that did no
-engine code — it recorded a project decision that reshapes what comes next. `docs/SPEC.md`
-and `docs/BUILD-ORDER.md` remain authoritative — this file explains the *why* behind decisions
-those documents don't fully capture, and what to do next. Safe to delete once it goes stale.
+Point-in-time snapshot for picking this work back up, written at the end of a session that
+implemented T34 (WXR streaming parser) — the first M6 task, now prioritized ahead of M5 (see
+the previous session's roadmap-pivot handover, superseded by this one but worth reading for
+the reasoning). `docs/SPEC.md` and `docs/BUILD-ORDER.md` remain authoritative — this file
+explains the *why* behind decisions those documents don't fully capture, and what to do next.
+Safe to delete once it goes stale.
 
-## What happened this session
+## Current state
 
-The operator (SilverDay) reported that `blog.silverday.de`'s live site has been taken down,
-and that they hold a WordPress XML export (WXR) instead. This was the actual cause of T26
-(legacy snapshot support) being blocked — not, as the previous session's handover framed it,
-an undecided preference among SPEC §15.5's three cutover options. With no live site left,
-option 1 (freeze-and-serve, which needs `wget --mirror` against something still serving) is
-gone outright, not just undesirable.
-
-Asked which of the remaining paths to take, the operator chose a fourth option SPEC §15.5
-didn't originally list: **pull the P3 WordPress import (Appendix A, BUILD-ORDER's M6) forward,
-ahead of M5 (Admin)**, and build it next, rather than accept the gap or wait on a staging
-cutover. Recorded in both documents:
-
-- `docs/SPEC.md`: §15.5 has a resolution note (freeze-and-serve struck through as no longer
-  available, the chosen path explained, and an explicit statement of what does *not* change —
-  §1.1's phase-shipping criterion, the P1 forward-compat hooks). §19 items 3 and 4 are marked
-  resolved (it's WordPress; the cutover option is decided); item 5 is marked superseded rather
-  than separately resolved. Appendix B's decision-log entry #4 has a matching revision note.
-- `docs/BUILD-ORDER.md`: T26's row is marked `[n/a]` (a new status this file hasn't used
-  before — "will not be built," distinct from `[ ]`/"not yet built" — with a status note
-  explaining why, placed where T27's own status note already lives). M6's section gained a
-  reprioritization note explaining the new build order and correcting T34's `Deps` column
-  (`T33` → none — see below).
+- `make check` is green: 528 tests, 1075 assertions, PHPStan level 8, PSR-12 + escaping lint.
+- BUILD-ORDER.md: M1-M3 all `[x]`. M4: T25 `[x]`, T26 `[n/a]`, T27 deliverables done (checkbox
+  open pending live verification). **M6: T34 `[x]`.** M5 (T28-33) untouched, deliberately —
+  M6 is being built first.
+- New namespace: `src/Import/` — `WxrReader`, `WxrDocument`, `WxrChannel`, `WxrItem`,
+  `WxrAuthor`, `WxrCategory`, `ImportException`. No CLI command yet — a parser alone produces
+  only an in-memory `WxrDocument`, nothing a CLI command would do anything useful with until
+  T35 (HTML→Markdown) and T37 (front matter emission) exist. Wiring a command is a later
+  task's job, not this one's.
+- The operator's real WXR export lives at `~/export/blog-export.xml` (outside the repo,
+  never committed — see below). It was read directly this session to do SPEC §A.2's pre-work
+  and to sanity-check `WxrReader` against real data, both ad hoc, not as a committed test.
 
 ## Decisions made this session that a future reader should know about
 
-1. **This was a decision only the operator could make, so it was asked rather than guessed.**
-   The previous session's handover had already framed T26 as blocked on *a* decision; this
-   session's first move was confirming what the decision actually was now that the underlying
-   facts had changed, via `AskUserQuestion`, not picking one of §15.5's original three options
-   unilaterally. The chosen answer wasn't even one of the three offered verbatim — "accelerate
-   the import" was added as a fourth, clearly-labelled option specifically because the other
-   three no longer fit the new facts well.
-2. **T34's `Deps` column changed from `T33` to none, and this needed its own explanation,
-   not just a silent edit.** The original BUILD-ORDER had M6's first task depending on M5's
-   *last* task. Re-reading Appendix A's own design (a streaming `XMLReader` CLI pipeline, no
-   admin UI anywhere in §A.1-§A.5) against how T25 was actually built (a CLI tool, `Cuniform\
-   Cutover\`, no admin dependency) made clear that `T33` reflected M6 simply being sequenced
-   after M5 in the original phase order, not a genuine technical requirement. Worth another
-   look if a later session picking up T34 finds a real reason T33 (or any other M5 task) is
-   actually needed — this session's read is that there isn't one, not a certainty beyond doubt.
-3. **SPEC §1.1's phase-shipping criterion ("P3 ships when P1+P2 stable") was deliberately left
-   unchanged**, even though task *build order* now puts M6 ahead of M5. This distinction is
-   spelled out explicitly in three places (SPEC §15.5's resolution note, SPEC's Appendix B
-   entry #4, and BUILD-ORDER's M6 reprioritization note) specifically so it doesn't get lost —
-   building the importer next and *shipping* imported content to production are different
-   decisions, and only the first one was made this session.
-4. **T25's crawler (`LegacyUrlCrawler`, `bin/cuniform legacy-urls`) is not wasted work** despite
-   having nothing left to crawl for this site — it's generic, reusable tooling, and the session
-   said so explicitly in both SPEC and BUILD-ORDER rather than leaving its now-odd relationship
-   to "the" cutover unexplained. This site's actual URL source going forward is each WXR
-   `<item><link>`, read directly by the importer once it exists (T37 specifically —
-   "redirect generation for every document").
-5. **A new project memory was saved** (`cutover_site_down_wxr_export.md`, type: project) —
-   the site-down/WXR-export fact and its consequences, since it's exactly the kind of
-   non-derivable project context future sessions need and can't recover from the code alone.
-   Worth updating or removing once the import actually ships and this stops being live context.
+1. **SPEC §A.2's pre-work was done against the real export before writing any parsing code,**
+   not assumed or deferred. Findings, all now recorded in BUILD-ORDER's T34 note: permalink
+   structure is date-based (`/YYYY/MM/postname/`) for published posts, `?p=<id>` for drafts
+   (normal — a draft has no live pretty permalink under any setting); the site has both
+   Classic and Gutenberg content (5 Classic items, one pure-Gutenberg 2018 draft using only
+   paragraph/heading/list blocks); zero shortcodes anywhere; **all six items are in English**,
+   which wasn't the assumption baked into SPEC's own §6.4 history and is worth knowing before
+   T37 decides which language tree an imported document lands in (`en` is already
+   `default_language`, so this may mean it's simpler than expected — nothing decided this
+   session, just flagged). Also noted: zero media references in this export at all, so T36
+   (media downloader) has nothing to actually fetch for this specific corpus, though it still
+   needs to exist as a general capability.
+2. **The real export file is not committed anywhere, on purpose** — same principle as
+   `config/site.php` and the real legal pages (SPEC §6.4's "never commit" list, which this
+   isn't literally part of, but the reasoning transfers directly: it's the operator's real
+   content). `tests/fixtures/Import/sample.xml` is a synthetic fixture built to exercise the
+   same shapes without containing anything real. If a future session needs the real export
+   again, it's still at `~/export/blog-export.xml` — ask the operator again only if that's
+   changed.
+3. **A malformed WXR item is not caught and skipped independently — a parse failure always
+   aborts the whole read.** This diverges from `DocumentParser`'s per-document error
+   collection (SPEC §5.5), and an early draft of `WxrReader` actually copied that pattern
+   (try/catch around each item, collecting a list of errors) before empirical testing showed
+   it could never fire: `XMLReader::read()` itself fails at the very first well-formedness
+   problem in the *whole* document, however far into it, since a streaming reader tokenizes
+   forward from the start — there's no such thing as "item 5 of 20 is bad, continue with the
+   rest" the way there is for 20 independent front-matter files. Same lesson T23's
+   `ReleaseDeployer` pruning logic already taught this project once: write the test for a
+   scenario before trusting the design, not after.
+4. **External entity loading is hardened explicitly (`LIBXML_NONET`), even though empirical
+   testing showed modern libxml2 already disables external entity *substitution* by default**
+   on this host regardless. Verified both configurations against a crafted XXE payload before
+   deciding — the explicit flag is intent made durable, not redundant defense: relying on a
+   platform default that could differ across PHP/libxml builds is exactly the kind of implicit
+   assumption this project's conventions (RestrictedYamlParser, FilesystemGateway's realpath
+   containment) consistently avoid elsewhere. Kept as a regression test
+   (`WxrReaderTest::testExternalEntityIsNotExpanded`), not just a one-time manual check.
+5. **`readOuterXML()` re-serializing every namespace declaration a subtree needs onto the
+   element itself was verified empirically with a throwaway script against the real export,**
+   not assumed from documentation — this is what makes parsing a `<item>` fragment standalone
+   with `simplexml_load_string()` safe, even though its `wp:`/`content:`/`excerpt:`/`dc:`
+   prefixes are declared on the document's root `<rss>`, nowhere near the item itself.
 
 ## What's still deferred and why
 
-- The WXR export file's own location wasn't stated this session — needed before T34 can
-  actually start; ask if it isn't already obvious from the repo or a fresh message.
-- Everything M6 itself needs (T34-39) — none of it is built yet. This session was scope
-  clarification, not implementation.
-- The §1.1 phase-shipping question this session deliberately left alone: whether the finished
-  import goes live before or after M5 (Admin) exists. Worth revisiting once M6 is closer to
-  done, not now.
+- T35 (HTML→Markdown conversion), T36 (media downloader — nothing to fetch for this export,
+  but still needs building generically), T37 (front matter emission, redirect generation),
+  T38 (verification), T39 (manual review tracking) — none of M6 beyond T34 is built yet.
+- Partitioning by `wp:post_type`/`wp:status` (publish→published, draft→draft, skip revisions/
+  nav items/auto-drafts — SPEC §A.3's "Pipeline" step) is deliberately not in `WxrReader` at
+  all. It returns every item the export contains, faithfully, and decides nothing about which
+  of them matter for import — that's T35/T37's job.
+- No CLI command yet for the importer (see "Current state" above) — nothing to usefully wire
+  up until conversion and front-matter emission exist too.
 
 ## Recommended next step
 
-**T34** (WXR streaming parser with external entities disabled, SPEC §A.1) is next per the
-reprioritization above — no BUILD-ORDER dependency left unmet. Before starting, SPEC §A.2's
-own pre-work list is worth doing first, now that a real export exists to check it against:
-confirm the live permalink structure (needed to generate correct redirects, §8.1), whether
-content is Gutenberg or Classic (a long-lived site likely has both), which plugin shortcodes
-appear (every unrecognized one is a data-loss risk per §A.3), and whether any content is
-already non-German (decides whether every imported document lands in `de/` or not) — the
-export itself answers all four, and getting them wrong is exactly the kind of thing that's
-cheap to check now and expensive to discover mid-import.
+**T35** (HTML→Markdown converter constrained to supported constructs; unknown shortcodes
+preserved and reported) is next in M6's now-prioritized sequence. Given this session's pre-work
+findings, the real corpus this needs to handle is small and tractable: `<p>`, headings, lists,
+links, and basic inline formatting from 5 Classic posts, plus one Gutenberg draft using only
+paragraph/heading/list blocks (no images, galleries, or embeds to worry about in this
+particular export) — worth reading `content:encoded` from a couple of real items directly
+(`~/export/blog-export.xml`, still there) before assuming the general Appendix A.3 HTML→
+Markdown mapping table covers everything this specific site's markup actually contains.
