@@ -56,6 +56,11 @@ final class ContentException extends CuniformException
         );
     }
 
+    public static function pageNestingTooDeep(string $path, int $maxDepth): self
+    {
+        return new self("'{$path}' is nested more than {$maxDepth} levels below the language segment (SPEC §6.3)");
+    }
+
     public static function duplicateTranslationKey(string $key, string $language, string $firstIdentifier, string $secondIdentifier): self
     {
         return new self(

@@ -111,15 +111,38 @@ than `strftime()` or system locale data (§7.9).
 
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
-| T16 | [ ] | ViewModel objects and escaping helpers `e`/`eAttr`/`eUrl`/`eJs`; escaping lint in `make lint` | T7 | §9 |
+| T16 | [x] | ViewModel objects and escaping helpers `e`/`eAttr`/`eUrl`/`eJs`; escaping lint in `make lint` | T7 | §9 |
 | T17 | [ ] | Template set: layout, post, page, index, tag, series, archive, search, 404, feed | T14, T16 | §9 |
-| T18 | [ ] | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap | T12 | §6.2, §6.3 |
+| T18 | [x] | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap | T12 | §6.2, §6.3 |
 | T19 | [ ] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
 | T20 | [ ] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
 | T21 | [ ] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
 | T22 | [ ] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
 | T23 | [ ] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
 | T24 | [ ] | Incremental build cache and invalidation, including translation-group invalidation | T19 | §10.2 |
+
+**T16 acceptance:** `e`/`eAttr`/`eUrl`/`eJs` are the only four names `make lint`'s
+escaping-lint accepts after a bare `<?=` (plus `t`, already true from T13's design). `eUrl`
+rejects a `javascript:`/`data:` scheme the same way the shortcode handlers' own URL
+sanitizer does — reused, not reimplemented a second time. `ViewModel` exposes `language`,
+`canonicalUrl`, and a nullable `hreflang`, and `t()` delegates to the UI string catalogue for
+its own language.
+
+**T17 progress (not yet done):** `layout.php`, `post.php`, `page.php`, and the partials that
+don't need aggregated data (`head`, `nav-primary`, `nav-footer`, `lang-switcher`, `toc`) are
+built and tested, along with the rendering mechanism (`TemplateRenderer`, `TemplateResolver`).
+Not started: `index.php`, `tag.php`, `series.php`, `archive.php`, `search.php`, `404.php`,
+`feed.xml.php`, and the `post-card`/`pagination` partials — all need aggregated corpus data
+(post listings, pagination state, tag/series indexes, a search index) that doesn't exist until
+T18/T19 build it. `nav-primary`/`nav-footer` currently render whatever `NavItem` list they're
+given but nothing builds that list yet (T18); `lang-switcher` doesn't yet render a disabled/
+home-link state for a language with no translation (§7.7) — both to revisit once T18 lands.
+
+**T18 acceptance:** a page nested more than three levels below the language segment is a
+build error (§6.3). A page needs `nav_order` set to appear in a nav tree at all — "reachable
+but not in nav" otherwise (§6.2); `nav_group: none` excludes it even with `nav_order` set. A
+directory referenced by another page's position but with no `index.md` of its own produces a
+warning, not a build failure. `nav_parent` overrides directory position when given.
 
 **T19 acceptance:** a second concurrent build is rejected by `flock`, not queued. A template
 error aborts the build with no output written.

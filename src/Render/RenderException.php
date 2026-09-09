@@ -28,6 +28,16 @@ final class RenderException extends CuniformException
         return new self('Md2Html must be constructed with headless=true (SPEC §9)');
     }
 
+    public static function templateNotFound(string $path): self
+    {
+        return new self("Template not found: {$path}");
+    }
+
+    public static function unknownTemplate(string $name): self
+    {
+        return new self("'{$name}' is not an allow-listed template name (SPEC §9, §6.2)");
+    }
+
     public static function missingIncludeSlug(): self
     {
         return new self("[include] requires a 'page' attribute");

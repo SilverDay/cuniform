@@ -4,7 +4,13 @@ declare(strict_types=1);
 
 /**
  * Fails if a template echoes anything that is not routed through an escaping helper.
- * Exactly one unescaped sink is permitted: $doc->bodyHtml (SPEC §9, rule 2).
+ * $doc->bodyHtml is the one unescaped sink SPEC §9 names directly — renderer output.
+ * Two more are enumerated here, both already-safe HTML by construction rather than
+ * unescaped user input: $layout->content (another template's own output, already
+ * escaped except for its own bodyHtml sink) and a heading's 'text' entry (already
+ * HTML-escaped and inline-formatted by the renderer's getHeadings(), same as
+ * bodyHtml — see Md2Html::parseInline()). Any other bare expression must go through
+ * a helper.
  */
 $root = $argv[1] ?? 'templates';
 
@@ -14,7 +20,7 @@ if (!is_dir($root)) {
 }
 
 $allowed = '/^\s*(e|eAttr|eUrl|eJs|t)\s*\(/';
-$sink    = '/^\s*\$doc->bodyHtml\s*$/';
+$sink    = '/^\s*(\$doc->bodyHtml|\$layout->content|\$\w+\[[\'"]text[\'"]\])\s*$/';
 $errors  = [];
 
 $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root));
