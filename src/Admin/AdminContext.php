@@ -8,6 +8,8 @@ use Cuniform\Admin\Auth\AdminCookie;
 use Cuniform\Admin\Auth\CsrfToken;
 use Cuniform\Admin\Auth\LoginService;
 use Cuniform\Admin\Editor\EditorDocumentStore;
+use Cuniform\Admin\Media\MediaLibrary;
+use Cuniform\Admin\Media\MediaUploader;
 use Cuniform\Admin\Preview\PreviewRenderer;
 use Cuniform\Config\Config;
 
@@ -26,6 +28,8 @@ final class AdminContext
         public readonly CsrfToken $csrfToken,
         public readonly EditorDocumentStore $editorDocumentStore,
         public readonly PreviewRenderer $previewRenderer,
+        public readonly MediaUploader $mediaUploader,
+        public readonly MediaLibrary $mediaLibrary,
     ) {
     }
 }

@@ -32,6 +32,8 @@ status against `docs/SPEC.md` if you want the specifics of what's done and what 
 ## Requirements
 
 - PHP 8.3+ (CLI), with `ext-intl` recommended (a documented fallback exists if it's absent)
+- `ext-gd`, for the admin media library's upload re-encoding (SPEC §13.2) — no fallback; an
+  upload fails cleanly with an explanatory error if it's missing
 - Composer, for development only
 - Apache with `mod_rewrite`, `mod_headers`, `mod_alias` for deployment
 - git

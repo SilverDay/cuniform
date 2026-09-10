@@ -198,3 +198,16 @@ select {
     padding-top: 1rem;
     border-top: 1px solid var(--border);
 }
+
+/* T31 — media library (SPEC §13.2, §13.3). */
+
+.admin-upload-form {
+    margin-bottom: 2rem;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+input[type="file"] {
+    display: block;
+    margin-top: 0.25rem;
+}

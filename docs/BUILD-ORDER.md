@@ -509,7 +509,7 @@ that point too (`curl -I https://blog.silverday.de/de/does-not-exist/` should co
 | T28 | [x] | Auth: Argon2id, TOTP, recovery codes, sessions, rate limiting | T23 | §13.1 |
 | T29 | [x] | Editor with front matter form, SHA-256 conflict detection, git commit via `proc_open` | T28 | §12 |
 | T30 | [x] | Preview rendering through the identical C3/C4/C5 chain | T29 | §12 |
-| T31 | [ ] | Media library with upload validation and re-encoding | T28 | §13.2 |
+| T31 | [x] | Media library with upload validation and re-encoding | T28 | §13.2 |
 | T32 | [ ] | Build enqueue via request file, consumed by the systemd unit | T27, T28 | §10.5 |
 | T33 | [ ] | Dashboard, lists, translation-status visibility, build log, rollback, audit log | T29 | §13.3 |
 
@@ -765,6 +765,78 @@ on-disk file is confirmed byte-unchanged after the call; an unconfigured languag
 unknown identifier both come back as `PreviewResult::invalid()` rather than throwing.
 `make check`: 811 tests (up from 797), PHPStan level 8 clean across `src`, `bin`, `tests`,
 `admin`, PSR-12 + escaping lint clean.
+
+**T31 note:** BUILD-ORDER lists no explicit acceptance criteria for T31 either; scope was
+derived directly from §13.2's own clause ("media upload validated on extension *and* content
+type *and* magic bytes, re-encoded through GD/Imagick to strip EXIF and any embedded payload,
+stored under a randomized name") and §13.3's "media library" screen, the same pattern
+T20/T21/T25/T28/T29/T30 already established. New namespace `Cuniform\Admin\Media\` in
+`src/Admin/`, plus `admin/media.php` (upload form + listing, wired the same way
+`admin/documents.php`/`admin/editor.php` are — `AdminContext`/`AdminBootstrap` gained
+`mediaUploader`/`mediaLibrary` services).
+
+**Three checks, not three fallbacks.** `MediaUploader::upload()` derives a format from the
+original filename's extension, the browser-reported content type, and the file's own magic
+bytes (`MediaMagicBytes`, hand-rolled rather than ext-exif's `exif_imagetype()` — see its own
+docblock — so this adds no dependency beyond GD, which re-encoding already requires) — and
+requires all three to name the *same* format before anything is decoded. SPEC lists these as
+three checks to perform, not a priority order to fall back through, so a `.png` that is
+actually a JPEG, or a browser lying about content type, is refused outright with a specific
+error rather than resolved by trusting whichever signal looks most authoritative.
+
+**Re-encoding is real GD decode/re-encode, not a copy.** `MediaReencoder` decodes the source
+through GD's `imagecreatefromjpeg`/`png`/`webp` and re-encodes through `imagejpeg`/`png`/`webp`
+— this is what "strip EXIF and any embedded payload" actually means mechanically: only decoded
+pixel data ever reaches the output, so EXIF, ICC profiles, XMP, and anything smuggled outside
+the pixel data (a polyglot, a trailing chunk) never survives the round trip, by construction
+rather than by a metadata-stripping pass that could miss something. No `@` (php-style.md): GD's
+decoders emit an `E_WARNING` and return `false` on a malformed file rather than throwing, so a
+temporary `set_error_handler()` converts that into an `AdminException` instead — the same
+"real image bytes, but corrupt" case that also makes this check strictly stronger than the
+magic-bytes check alone. No variable function calls either (also php-style.md): each format's
+GD function is named explicitly in a `match`, never looked up by a string built from the format
+and invoked dynamically.
+
+**One scope decision, documented in `MediaFormat`'s own docblock rather than silently chosen:**
+JPEG, PNG, and WebP only. SPEC names no format list at all — GIF is deliberately excluded
+because GD's `imagecreatefromgif()` only reads the first frame, so re-encoding an animated GIF
+through this pipeline would silently flatten it to a static image, exactly the kind of
+surprising data loss this project's conventions avoid inflicting unasked; SVG is excluded
+because it is XML, not raster pixel data (nothing for "re-encode to strip embedded payloads" to
+mean), and because same-origin admin (§3.4) makes an SVG's potential inline `<script>`/
+event-handler content a real XSS vector if served back directly. Both are revisitable if
+actually needed later.
+
+**The stored filename is always engine-generated — `random_bytes(16)` hex, never the original
+name or anything derived from request input** (security.md: "a path never comes from request
+input"). `MediaLibrary` is a read-only directory scan (mirrors `Build\MediaCopier`'s own tree
+walk, kept separate since MediaCopier's plain path list and this listing's per-file metadata —
+size, dimensions, modified time — have no shared consumer that would justify merging them); a
+file present on disk but not decodable as an image (edited outside this application, e.g. by
+hand or by P3's importer) is listed with 0×0 dimensions rather than dropped, same
+don't-let-one-bad-entry-break-the-listing rule `DocumentIndex::summaries()` already follows.
+
+**Two things this task deliberately does not build**, both flagged rather than silently
+decided: no delete/rename for stored media (not named in the task title, and BUILD-ORDER's own
+convention is to not build ahead of a need — SPEC's "media library" bullet doesn't ask for
+management, just the screen); no click-to-insert JavaScript picker wired into `editor.php`'s
+image field (admin ships zero script, same T28/T29 convention — the media library page shows
+the uploaded path to copy by hand, closing the loop T29's own note left open).
+
+Verified two ways: `MediaUploaderTest`/`MediaReencoderTest`/`MediaLibraryTest`/
+`MediaFormatTest`/`MediaMagicBytesTest` exercise the classes directly, including real
+GD-generated JPEG/PNG/WebP fixtures (no binary files committed), an EXIF-stripping check, and
+every rejection path (bad extension, bad content type, bytes that aren't an image at all,
+extension/content-type/magic-bytes disagreement, no file received). Then a full HTTP round
+trip through PHP's built-in server against this checkout's real `admin/` (same verification
+style T28/T29 used): login → TOTP → a genuine multipart upload of a real 60×40 JPEG →
+`Location: /admin/media.php?uploaded=...` → the file confirmed on disk under
+`content/media/2026/09/<random-hex>.jpg`, re-decoding correctly at 60×40 — and a `.gif` upload
+correctly rejected with "has a file extension that isn't allowed." No repository state was left
+behind (a temporary, gitignored `config/site.php` pointed `releases`/`public`/`var`/`content`
+at a scratch directory outside the repo; removed after, same as T28's own verification).
+`make check`: 838 tests (up from 811), PHPStan level 8 clean across `src`, `bin`, `tests`,
+`admin`, PSR-12 + escaping lint clean. README's Requirements section now lists `ext-gd`.
 
 **T32 acceptance:** the admin process cannot write to `releases/` or `public` — verified by
 file permissions, not by convention.

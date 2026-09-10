@@ -276,8 +276,9 @@ you were about to save:</p>
 <li><code>[toc]</code></li>
 <li><code>[include page="slug"]</code></li>
 </ul>
-<p class="admin-hint">Inserting media by picking a file is built in T31 (media library) — for now,
-type the media path directly.</p>
+<p class="admin-hint">Upload an image in the <a href="/admin/media.php">media library</a> and copy its
+path here — there is no click-to-insert picker (admin ships no script, SPEC §14.1's reasoning
+doesn't strictly apply to admin, but T28 chose not to open that door for one feature).</p>
 </details>
 
 <button type="submit">Save</button>

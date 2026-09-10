@@ -58,4 +58,19 @@ final class AdminException extends CuniformException
 
         return new self("git command failed ({$cmd}): " . trim($output));
     }
+
+    public static function mediaEngineUnavailable(string $detail): self
+    {
+        return new self("the image re-encoding engine is unavailable on this server: {$detail} (SPEC §13.2 requires GD/Imagick)");
+    }
+
+    public static function mediaDecodeFailed(string $detail): self
+    {
+        return new self("the uploaded file could not be decoded as an image: {$detail}");
+    }
+
+    public static function mediaWriteFailed(string $path): self
+    {
+        return new self("could not write media file: {$path}");
+    }
 }

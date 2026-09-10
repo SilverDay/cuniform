@@ -13,6 +13,8 @@ use Cuniform\Admin\Auth\RateLimiter;
 use Cuniform\Admin\Auth\SessionStore;
 use Cuniform\Admin\Editor\EditorDocumentStore;
 use Cuniform\Admin\Editor\GitRepository;
+use Cuniform\Admin\Media\MediaLibrary;
+use Cuniform\Admin\Media\MediaUploader;
 use Cuniform\Admin\Preview\PreviewRenderer;
 use Cuniform\Config\ConfigLoader;
 
@@ -60,6 +62,19 @@ final class AdminBootstrap
         // (see PreviewRenderer's own docblock).
         $previewRenderer = new PreviewRenderer($config, $projectRoot . '/config/lang', $editorDocumentStore);
 
-        return new AdminContext($config, $loginService, new AdminCookie(), new CsrfToken(), $editorDocumentStore, $previewRenderer);
+        $mediaRoot     = rtrim($config->paths->content, '/') . '/media';
+        $mediaUploader = new MediaUploader($mediaRoot);
+        $mediaLibrary  = new MediaLibrary($config->paths->content);
+
+        return new AdminContext(
+            $config,
+            $loginService,
+            new AdminCookie(),
+            new CsrfToken(),
+            $editorDocumentStore,
+            $previewRenderer,
+            $mediaUploader,
+            $mediaLibrary,
+        );
     }
 }
