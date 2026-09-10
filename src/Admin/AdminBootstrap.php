@@ -11,6 +11,7 @@ use Cuniform\Admin\Auth\LoginService;
 use Cuniform\Admin\Auth\PendingLoginStore;
 use Cuniform\Admin\Auth\RateLimiter;
 use Cuniform\Admin\Auth\SessionStore;
+use Cuniform\Admin\Build\BuildRequestQueue;
 use Cuniform\Admin\Editor\EditorDocumentStore;
 use Cuniform\Admin\Editor\GitRepository;
 use Cuniform\Admin\Media\MediaLibrary;
@@ -43,6 +44,13 @@ final class AdminBootstrap
             new RateLimiter($adminVarDir . '/rate-limits'),
         );
 
+        // Only path this process ever touches to ask for a build (SPEC
+        // §10.5) — deploy/systemd/cuniform-build.path (T27) watches this
+        // exact file with PathExists. Never releases/ or public/: this
+        // class holds no path to either (T32 acceptance — see its own
+        // docblock).
+        $buildQueue = new BuildRequestQueue(rtrim($config->paths->var, '/') . '/build-requested');
+
         // GitRepository runs with content/ itself as its cwd, not the
         // project root — EditorDocumentStore's own relative paths
         // ("posts/en/...") are relative to content/, and git resolves a
@@ -54,6 +62,7 @@ final class AdminBootstrap
             $config->languages,
             $config->timezone,
             new GitRepository($config->paths->content),
+            $buildQueue,
         );
 
         // Shares $config/$editorDocumentStore with the editor rather than
@@ -75,6 +84,7 @@ final class AdminBootstrap
             $previewRenderer,
             $mediaUploader,
             $mediaLibrary,
+            $buildQueue,
         );
     }
 }

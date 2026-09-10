@@ -510,7 +510,7 @@ that point too (`curl -I https://blog.silverday.de/de/does-not-exist/` should co
 | T29 | [x] | Editor with front matter form, SHA-256 conflict detection, git commit via `proc_open` | T28 | §12 |
 | T30 | [x] | Preview rendering through the identical C3/C4/C5 chain | T29 | §12 |
 | T31 | [x] | Media library with upload validation and re-encoding | T28 | §13.2 |
-| T32 | [ ] | Build enqueue via request file, consumed by the systemd unit | T27, T28 | §10.5 |
+| T32 | [x] | Build enqueue via request file, consumed by the systemd unit | T27, T28 | §10.5 |
 | T33 | [ ] | Dashboard, lists, translation-status visibility, build log, rollback, audit log | T29 | §13.3 |
 
 **T28 note:** BUILD-ORDER lists no explicit acceptance criteria for T28; scope was derived
@@ -840,6 +840,71 @@ at a scratch directory outside the repo; removed after, same as T28's own verifi
 
 **T32 acceptance:** the admin process cannot write to `releases/` or `public` — verified by
 file permissions, not by convention.
+
+**T32 note:** one new class, `Cuniform\Admin\Build\BuildRequestQueue` — the admin side of
+SPEC §10.5's "Admin publish" trigger row ("Admin writes a request file; a systemd path unit
+runs the build as the build user"). `deploy/systemd/cuniform-build.path` (T27) already watches
+`var/build-requested` with `PathExists`; this class is what makes the write side real.
+`enqueue()` does exactly one thing — `touch()` the one path given to its constructor — and
+`AdminBootstrap` wires it to `paths.var . '/build-requested'`; it never has, and structurally
+cannot have (see its own test below), a path to anything else.
+
+**"On publish" resolved against T29's own already-made decision, not re-litigated.** SPEC §12:
+"On save: write to the working copy, git commit ... On publish: flip status, commit, enqueue a
+build." T29 already decided publish is the `status` field, not a second endpoint (BUILD-ORDER's
+own T29 note). The natural reading of "on publish" inside that model, and the one this task
+implements: `EditorDocumentStore::save()`/`move()` enqueue a build whenever the resulting,
+successfully-written document's status is `published` — covering an initial publish, editing
+already-published content (the live page's body changed and needs a rebuild even though status
+didn't), and moving a published document (its URL changed). It does **not** cover unpublishing
+(`published` -> `draft`): SPEC's own text names only the publish direction, and the already-live
+page is removed by whatever build runs next regardless of what triggered it. Also excluded, for
+the same reason the git commit already is: the "nothing actually changed" branch in `save()` —
+enqueueing a rebuild for a save that wrote nothing would be pure waste.
+
+**The acceptance criterion's actual enforcement mechanism — the `cuniform-web`/`cuniform-build`
+Unix-user split SPEC §15.1 already specifies — needs a real multi-user host to exercise for
+real, which this environment cannot provide** (the same limit BUILD-ORDER's own T27 note
+documents for its ACME criterion). What's built and verified instead, in place of that:
+`BuildRequestQueue` holds exactly one path and exposes exactly two methods, neither of which
+takes a path argument (`BuildRequestQueueTest::testTheClassExposesNoWayToWriteAnywhereOtherThan
+ItsOwnConfiguredPath` asserts this by reflection) — so even without OS-level enforcement, there
+is no expression anywhere in this class capable of naming `releases/` or `public/`. Widened to
+the whole admin application: `AdminWriteBoundaryTest` (new, `tests/Admin/`) asserts that no file
+under `src/Admin/` or `admin/` references `Config::$paths->releases` or `Config::$paths->public`
+at all — the only way any code in this codebase constructs a path into either directory (see its
+own docblock) — turning "verified... not by convention" into a standing regression test rather
+than a one-time read-through: a future change that introduces such a reference fails this test
+immediately. One real permission-denial path is exercised directly too
+(`testEnqueueThrowsWhenTheRequestFileCannotBeWritten`, a `chmod 0555` parent directory), matching
+`FilesystemGateway::resolve()`'s existing precondition-first style (`is_writable()` checked
+ahead of `touch()`, not a suppressed `@touch()` relying on the warning) rather than adding a
+second, differently-shaped way of handling a write failure to the codebase.
+
+**A real discovery worth flagging rather than silently acting on:** this host's actual
+hosting platform auto-provisions one PHP-FPM pool per vhost outside this repository
+(`/etc/php/8.3/fpm/pool.d/blog-silverday-de.conf`, real and already present) — running as a
+`php-blog-silverday-de` user, on socket `/run/php/php8.3-fpm-blog-silverday-de.sock` — which
+does not match SPEC §3.2/§15.1's own bespoke model (`cuniform-web`, `/run/php/
+cuniform-admin.sock`) that `deploy/apache/blog.silverday.de.conf` (T27) was written against.
+This is a pre-existing tension from T27, not something this task introduces, and resolving it
+means picking between two real options (adapt the vhost's `SetHandler` to the platform's actual
+socket, or provision a bespoke pool matching SPEC's naming) that only the operator can decide —
+so nothing here was changed to route around it. Flagged for T27/deployment, not silently
+resolved inside T32.
+
+Verified two ways: `BuildRequestQueueTest`/`AdminWriteBoundaryTest`/the new
+`EditorDocumentStoreTest` cases (publish enqueues, draft doesn't, an already-published edit
+enqueues even without a status change, a scheduled post doesn't, a byte-identical resave
+doesn't, a move of a published document does and a move of a draft doesn't) exercise this
+directly. Then a full HTTP round trip through PHP's built-in server against this checkout's
+real `admin/` (same style T28/T29/T31 used): login → TOTP → a real `status=published` save via
+`editor.php` → `var/build-requested` confirmed created on disk with the exact expected commit
+already in place; a second, `status=draft` save via the same flow confirmed **not** to create
+it. No repository state was left behind (a temporary, gitignored `config/site.php` pointed
+`releases`/`public`/`var`/`content` at a scratch directory outside the repo; removed after,
+same as T28/T29/T31's own verification). `make check`: 851 tests (up from 838), PHPStan level 8
+clean across `src`, `bin`, `tests`, `admin`, PSR-12 + escaping lint clean.
 
 ---
 

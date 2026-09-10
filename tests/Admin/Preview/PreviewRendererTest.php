@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cuniform\Tests\Admin\Preview;
 
+use Cuniform\Admin\Build\BuildRequestQueue;
 use Cuniform\Admin\Editor\EditorDocumentStore;
 use Cuniform\Admin\Editor\EditorSaveRequest;
 use Cuniform\Admin\Editor\GitRepository;
@@ -50,6 +51,7 @@ final class PreviewRendererTest extends TestCase
             ['de', 'en'],
             'Europe/Berlin',
             new GitRepository(self::FIXTURE_CONTENT),
+            new BuildRequestQueue($this->scratchDir . '/var/build-requested'),
         );
         $this->preview = new PreviewRenderer($this->config(), self::LANG_DIR, $this->store);
     }

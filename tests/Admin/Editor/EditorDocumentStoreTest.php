@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cuniform\Tests\Admin\Editor;
 
 use Cuniform\Admin\AdminException;
+use Cuniform\Admin\Build\BuildRequestQueue;
 use Cuniform\Admin\Editor\EditorDocumentStore;
 use Cuniform\Admin\Editor\EditorSaveRequest;
 use Cuniform\Admin\Editor\EditorSaveStatus;
@@ -17,12 +18,20 @@ final class EditorDocumentStoreTest extends TestCase
 {
     private string $root;
     private string $contentRoot;
+    private string $varRoot;
+    private string $buildRequestPath;
     private EditorDocumentStore $store;
 
     protected function setUp(): void
     {
         $this->root        = sys_get_temp_dir() . '/cuniform_editorstore_' . uniqid();
         $this->contentRoot = $this->root . '/content';
+        // Deliberately outside $this->root/the git repo it becomes below —
+        // in a real deployment var/ is never inside the content git repo
+        // either (SPEC §3: separate, sibling directories under the vhost
+        // root), so a BuildRequestQueue write here must never show up as
+        // an untracked file under content's own git status.
+        $this->varRoot = sys_get_temp_dir() . '/cuniform_editorstore_var_' . uniqid();
 
         mkdir($this->contentRoot . '/posts/en/2026', 0o755, true);
         mkdir($this->contentRoot . '/posts/de/2026', 0o755, true);
@@ -49,17 +58,21 @@ final class EditorDocumentStoreTest extends TestCase
         $this->git($this->contentRoot, ['git', 'add', '-A']);
         $this->git($this->contentRoot, ['git', '-c', 'user.name=Setup', '-c', 'user.email=setup@example.test', 'commit', '-q', '-m', 'Initial fixture content']);
 
+        $this->buildRequestPath = $this->varRoot . '/build-requested';
+
         $this->store = new EditorDocumentStore(
             $this->contentRoot,
             ['en', 'de'],
             'Europe/Berlin',
             new GitRepository($this->contentRoot),
+            new BuildRequestQueue($this->buildRequestPath),
         );
     }
 
     protected function tearDown(): void
     {
         $this->removeDirectory($this->root);
+        $this->removeDirectory($this->varRoot);
     }
 
     public function testLoadReturnsTheParsedDocumentWithItsSha256(): void
@@ -353,6 +366,92 @@ final class EditorDocumentStoreTest extends TestCase
         self::assertSame(EditorSaveStatus::NotFound, $outcome->status);
     }
 
+    public function testSavingANewDraftDoesNotEnqueueABuild(): void
+    {
+        $request = $this->postRequest(identifier: null, expectedSha256: null, slug: 'still-a-draft', title: 'Draft', date: '2026-04-04T09:00:00+01:00', status: 'draft');
+
+        $this->store->save($request, 'Jane', 'jane@example.test');
+
+        self::assertFileDoesNotExist($this->buildRequestPath, 'SPEC §10.5/§12: only a publish enqueues a build');
+    }
+
+    public function testSavingANewPublishedDocumentEnqueuesABuild(): void
+    {
+        $request = $this->postRequest(identifier: null, expectedSha256: null, slug: 'brand-new-published', title: 'Published', date: '2026-04-05T09:00:00+01:00', status: 'published');
+
+        $outcome = $this->store->save($request, 'Jane', 'jane@example.test');
+
+        self::assertSame(EditorSaveStatus::Saved, $outcome->status);
+        self::assertFileExists($this->buildRequestPath);
+    }
+
+    public function testEditingAnAlreadyPublishedDocumentEnqueuesABuildEvenThoughStatusDidNotChange(): void
+    {
+        $doc = $this->store->load('posts/en/2026/2026-03-14-hello.md');
+        self::assertSame(DocumentStatus::Published, $doc->status);
+
+        $request = $this->postRequest(
+            identifier: $doc->identifier,
+            expectedSha256: $doc->sha256,
+            slug: 'hello',
+            title: 'Hello Edited',
+            date: '2026-03-14T10:00:00+01:00',
+            status: 'published',
+        );
+
+        $this->store->save($request, 'Jane', 'jane@example.test');
+
+        self::assertFileExists($this->buildRequestPath, 'the live page changed and needs a rebuild, even though it was already published');
+    }
+
+    public function testSavingAScheduledDocumentDoesNotEnqueueABuild(): void
+    {
+        $request = $this->postRequest(identifier: null, expectedSha256: null, slug: 'later', title: 'Later', date: '2099-01-01T09:00:00+01:00', status: 'scheduled');
+
+        $this->store->save($request, 'Jane', 'jane@example.test');
+
+        self::assertFileDoesNotExist($this->buildRequestPath);
+    }
+
+    public function testSavingAnUnchangedPublishedDocumentDoesNotEnqueueABuild(): void
+    {
+        // Same double-round-trip as testSaveWithByteIdenticalContentSkipsTheGitCommit,
+        // which needs the first save to normalize serialization before a
+        // second, truly byte-identical save can skip the git commit — and,
+        // for the same reason, skip enqueueing a pointless rebuild too.
+        $doc = $this->store->load('posts/en/2026/2026-05-01-standalone.md');
+
+        $first = $this->store->save($doc->asSaveRequestForUpdate(), 'Jane', 'jane@example.test');
+        self::assertSame(EditorSaveStatus::Saved, $first->status);
+        self::assertNotNull($first->document);
+        self::assertFileExists($this->buildRequestPath, 'the first save is a real, published change');
+
+        unlink($this->buildRequestPath);
+
+        $reloaded = $this->store->load($first->document->identifier);
+        $second   = $this->store->save($reloaded->asSaveRequestForUpdate(), 'Jane', 'jane@example.test');
+
+        self::assertSame(EditorSaveStatus::Saved, $second->status);
+        self::assertNull($second->commitSha);
+        self::assertFileDoesNotExist($this->buildRequestPath, 'nothing actually changed on the second, byte-identical save');
+    }
+
+    public function testMovingAPublishedDocumentEnqueuesABuild(): void
+    {
+        $outcome = $this->store->move('posts/en/2026/2026-03-14-hello.md', 'de', 'hallo-neu', 'Jane', 'jane@example.test');
+
+        self::assertSame(EditorSaveStatus::Saved, $outcome->status);
+        self::assertFileExists($this->buildRequestPath);
+    }
+
+    public function testMovingADraftDocumentDoesNotEnqueueABuild(): void
+    {
+        $outcome = $this->store->move('posts/de/2026/2026-03-14-hallo.md', 'en', 'hallo-en', 'Jane', 'jane@example.test');
+
+        self::assertSame(EditorSaveStatus::Saved, $outcome->status);
+        self::assertFileDoesNotExist($this->buildRequestPath);
+    }
+
     private function postRequest(
         ?string $identifier,
         ?string $expectedSha256,
@@ -361,6 +460,7 @@ final class EditorDocumentStoreTest extends TestCase
         string $date,
         ?string $translationKey = null,
         string $body = 'Body.',
+        string $status = 'draft',
     ): EditorSaveRequest {
         return new EditorSaveRequest(
             identifier: $identifier,
@@ -369,7 +469,7 @@ final class EditorDocumentStoreTest extends TestCase
             kind: DocumentKind::Post,
             title: $title,
             slug: $slug,
-            status: 'draft',
+            status: $status,
             summary: 'Summary',
             translationKey: $translationKey,
             updated: null,

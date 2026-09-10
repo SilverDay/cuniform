@@ -5,10 +5,12 @@ declare(strict_types=1);
 namespace Cuniform\Admin\Editor;
 
 use Cuniform\Admin\AdminException;
+use Cuniform\Admin\Build\BuildRequestQueue;
 use Cuniform\Build\DiscoveredDocument;
 use Cuniform\Content\ContentException;
 use Cuniform\Content\FilesystemGateway;
 use Cuniform\Content\FrontMatter\DocumentKind;
+use Cuniform\Content\FrontMatter\DocumentStatus;
 use Cuniform\Content\FrontMatter\FrontMatterEmitter;
 use Cuniform\Content\FrontMatter\FrontMatterParser;
 
@@ -30,6 +32,18 @@ use Cuniform\Content\FrontMatter\FrontMatterParser;
  * — the actual set of files under `content/` — never built by joining a
  * request value onto the content root and trusting it (SPEC §13.2: "the
  * editor taking a document identifier, never a path from the request").
+ *
+ * SPEC §12: "On publish: flip status, commit, enqueue a build" — T29 already
+ * decided publish is the `status` field, not a second endpoint (see
+ * BUILD-ORDER.md T29's own note), so "on publish" here means "after a real
+ * write whose resulting document is `published`": save()/move() enqueue a
+ * build (T32, BuildRequestQueue) exactly then, never for a draft/scheduled
+ * result and never for the no-op "nothing actually changed" branch in
+ * save() that already skips the git commit for the same reason. Un-
+ * publishing (published -> draft) does not itself enqueue — SPEC's own
+ * text names only the publish direction, and the already-live page is
+ * removed by the next build regardless of what triggers it (manual,
+ * scheduled, or a later publish elsewhere).
  */
 final class EditorDocumentStore
 {
@@ -47,6 +61,7 @@ final class EditorDocumentStore
         private readonly array $languages,
         string $defaultTimezone,
         private readonly GitRepository $git,
+        private readonly BuildRequestQueue $buildQueue,
     ) {
         $this->gateway           = new FilesystemGateway($contentRoot);
         $this->frontMatterParser = new FrontMatterParser($defaultTimezone);
@@ -176,6 +191,8 @@ final class EditorDocumentStore
             $authorEmail,
         );
 
+        $this->enqueueBuildIfPublished($saved->status);
+
         return EditorSaveOutcome::saved($saved, $commitSha);
     }
 
@@ -239,11 +256,18 @@ final class EditorDocumentStore
         );
 
         $sha256 = hash('sha256', $rendered);
+        $moved  = EditorDocument::fromParsed($newRelativePath, $newLanguage, $request->kind, $sha256, $frontMatter);
 
-        return EditorSaveOutcome::saved(
-            EditorDocument::fromParsed($newRelativePath, $newLanguage, $request->kind, $sha256, $frontMatter),
-            $commitSha,
-        );
+        $this->enqueueBuildIfPublished($moved->status);
+
+        return EditorSaveOutcome::saved($moved, $commitSha);
+    }
+
+    private function enqueueBuildIfPublished(DocumentStatus $status): void
+    {
+        if ($status === DocumentStatus::Published) {
+            $this->buildQueue->enqueue();
+        }
     }
 
     /**
