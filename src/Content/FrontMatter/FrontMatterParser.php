@@ -30,9 +30,14 @@ final class FrontMatterParser
         'template', 'nav_label', 'nav_order', 'nav_parent', 'nav_group', 'sitemap_priority', 'legal',
     ];
 
-    private const SLUG_PATTERN = '/^[a-z0-9-]{1,96}$/';
+    // Public: Cuniform\Admin\Editor\EditorDocumentStore (T29) reuses these to
+    // pre-validate a slug/date before it can even derive a new document's file
+    // path — the substantive validation still happens exactly once, here, via
+    // the emit-then-reparse round trip; this only avoids a second, drifting
+    // copy of the same two patterns.
+    public const SLUG_PATTERN = '/^[a-z0-9-]{1,96}$/';
 
-    private const ISO8601_PATTERN =
+    public const ISO8601_PATTERN =
         '/^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$/';
 
     /** @var list<string> */

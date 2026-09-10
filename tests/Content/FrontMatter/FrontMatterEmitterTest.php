@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace Cuniform\Tests\Import;
+namespace Cuniform\Tests\Content\FrontMatter;
 
+use Cuniform\Content\FrontMatter\FrontMatterEmitter;
 use Cuniform\Content\FrontMatter\RestrictedYamlParser;
-use Cuniform\Import\FrontMatterEmitter;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -79,5 +79,21 @@ final class FrontMatterEmitterTest extends TestCase
         $result = (new FrontMatterEmitter())->emit(['title' => 'T'], "Line one.\n\nLine two.");
 
         self::assertStringEndsWith("---\nLine one.\n\nLine two.", $result);
+    }
+
+    public function testIntAndFloatAreEmittedBareNotQuoted(): void
+    {
+        $result = (new FrontMatterEmitter())->emit(['nav_order' => 3, 'sitemap_priority' => 0.5], 'Body.');
+
+        self::assertSame("---\nnav_order: 3\nsitemap_priority: 0.5\n---\nBody.", $result);
+    }
+
+    public function testIntRoundTripsAsAnIntThroughTheRealParser(): void
+    {
+        $emitted   = (new FrontMatterEmitter())->emit(['nav_order' => 3], 'Body.');
+        $navLine   = explode("\n", $emitted)[1];
+        $parsed    = (new RestrictedYamlParser())->parse($navLine);
+
+        self::assertSame(3, $parsed->data['nav_order']);
     }
 }

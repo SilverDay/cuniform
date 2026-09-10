@@ -506,12 +506,203 @@ that point too (`curl -I https://blog.silverday.de/de/does-not-exist/` should co
 
 | # | Status | Task | Deps | Spec |
 |---|--------|------|------|------|
-| T28 | [ ] | Auth: Argon2id, TOTP, recovery codes, sessions, rate limiting | T23 | §13.1 |
-| T29 | [ ] | Editor with front matter form, SHA-256 conflict detection, git commit via `proc_open` | T28 | §12 |
+| T28 | [x] | Auth: Argon2id, TOTP, recovery codes, sessions, rate limiting | T23 | §13.1 |
+| T29 | [x] | Editor with front matter form, SHA-256 conflict detection, git commit via `proc_open` | T28 | §12 |
 | T30 | [ ] | Preview rendering through the identical C3/C4/C5 chain | T29 | §12 |
 | T31 | [ ] | Media library with upload validation and re-encoding | T28 | §13.2 |
 | T32 | [ ] | Build enqueue via request file, consumed by the systemd unit | T27, T28 | §10.5 |
 | T33 | [ ] | Dashboard, lists, translation-status visibility, build log, rollback, audit log | T29 | §13.3 |
+
+**T28 note:** BUILD-ORDER lists no explicit acceptance criteria for T28; scope was derived
+directly from §13.1's five bullets (Argon2id, TOTP, recovery codes, sessions, rate limiting),
+the same pattern T20/T21/T25 already established. New namespace `Cuniform\Admin\Auth\` in
+`src/Admin/`, plus `Cuniform\Admin\AdminContext`/`AdminBootstrap` one level up — the wiring
+layer `admin/*.php` calls into (see below). `admin/` and `phpstan.neon.dist`'s analysis paths
+both go from empty to real for the first time this task; `.php-cs-fixer.dist.php` already
+conditionally included `admin/` when present (T1), so no change needed there.
+
+Two judgment calls, documented rather than silently decided (this task's own "stop and ask if
+genuinely underspecified" was weighed against each and resolved in-code, matching how T17/T35/
+T37 already handle spec-silent implementation details of this size):
+
+1. **Breached-password check source.** §13.1 names no corpus. `DenylistBreachedPasswordChecker`
+   (an offline, bundled common-password list, `src/Admin/Auth/data/common-passwords.txt`)
+   stands in for a live k-anonymity lookup (e.g. HIBP) — the alternative would be this
+   project's first outbound network call outside mail (§15.2), untestable under this project's
+   own "no network in tests" rule, and a new runtime dependency on a third party staying up.
+   `BreachedPasswordChecker` is an interface specifically so a stronger implementation can
+   replace this one later without touching `PasswordPolicy`. Real, accepted limitation: a
+   password absent from the bundled list but present in an actual breach corpus passes.
+2. **Account storage and enrollment.** No database exists, so `AdminAccountStore` persists to
+   `<var>/admin/accounts.json` (atomic tmp-then-rename, same pattern `Build\BuildCache` already
+   uses) — a new, self-contained storage location under the existing `paths.var`, no
+   `config/site.php` schema change. There is no self-registration screen (single-operator
+   site, P2 scope) or admin UI yet to host a "create user" form, so account creation is
+   `bin/cuniform admin-create-account <username> [--password-file=<path>]` — a new CLI command
+   following T27's `setup-public` precedent ("operator runs a command on the server"). The
+   password is read from a file or one line of STDIN, deliberately never from `$argv`
+   (`ps`/shell history exposure) or an interactive masked prompt (untestable in the same
+   process PHPUnit runs in — `readPassword()`'s own docblock draws the same "thin, untested
+   real-I/O boundary" `StreamHttpFetcher` (T25) already established).
+
+**Sessions are not PHP's built-in `session_start()`/`$_SESSION`.** `SessionStore` (and
+`PendingLoginStore`, the same shape for the interim password-verified-but-not-yet-TOTP'd
+state) are explicit, constructor-injected file stores — ambient superglobal session state
+would fight php-style.md's "no static mutable state, constructor injection" and be far harder
+to unit test without a real request lifecycle. `FileRecordStore` factors the atomic-write,
+one-file-per-record-keyed-by-a-hash-of-the-key logic shared by `PendingLoginStore`,
+`SessionStore`, and `RateLimiter` — the three stores that churn on every login attempt, unlike
+`AdminAccountStore`'s single rarely-written file.
+
+**AAL2 is a real two-step flow, not a single call.** `LoginService::startLogin()` (password)
+returns a `PendingLogin` id on success; `completeSecondFactor()` (TOTP code, or a recovery
+code — tried in that order) is what actually issues a `Session`. A wrong password and an
+unknown username produce the identical `InvalidCredentials` outcome, and an unknown username
+still runs a real Argon2id verify against a freshly generated hash — enumeration and timing
+resistance, not just an appearance of it. `RateLimiter` is keyed by both `account:<username>`
+and `ip:<address>` per attempt (either startLogin or completeSecondFactor), matching §13.1's
+"per account and per source address" literally rather than picking one.
+
+**`admin/login.php`/`logout.php`/`index.php` exist now, ahead of the editor (T29).** "Auth" as
+a task is only actually exercised end-to-end through a real login screen — T29/T31/T33 will
+add the protected screens these already defend (`admin_require_session()`), not the login flow
+itself. All decision logic lives in `Cuniform\Admin\Auth\*`/`Cuniform\Admin\AdminBootstrap`,
+unit tested there; `admin/*.php` is deliberately thin and not unit tested directly, the same
+`bin/cuniform`-vs-`Cli\Application` split this project already uses — `AdminBootstrap::create()`
+exists specifically so PHPStan can follow types across files, since a plain `require` injecting
+local variables into a caller's scope is opaque to static analysis (verified empirically: every
+`admin/*.php` variable read this way reported `variable.undefined` until routed through a typed
+factory call instead).
+
+CSRF (§13.2, applied here since login/logout are state-changing) is double-submit-cookie style
+(`CsrfToken`, `AdminCookie::CSRF_NAME`) rather than a session-keyed synchronizer token, since
+the password step has no session yet to key one against — one mechanism for every admin form,
+not two. §14.1/§14.2's response headers are set by every `admin/*.php` entry point
+(`admin_security_headers()`); admin responses are dynamic, so unlike the public CSP these pages
+just ship zero script at all (`script-src 'none'`) rather than needing the hashed-inline-script
+workaround.
+
+Verified end-to-end against the real code path, not just PHPUnit: `bin/cuniform
+admin-create-account` against a scratch `var/`, then a full HTTP round trip (PHP's built-in
+server against this checkout's real `admin/`) — password step → TOTP step (code computed via
+the real `Totp` class from the printed secret) → authenticated `index.php` showing "Signed in
+as operator" → logout → `index.php` redirecting back to login, plus a missing-CSRF-token POST
+correctly rejected with "Your session expired". No repository state was left behind (a
+temporary, gitignored `config/site.php` pointed `releases`/`public`/`var` at a scratch
+directory outside the repo; removed after).
+
+`make check`: 765 tests (up from 658), PHPStan level 8 clean across `src`, `bin`, `tests`,
+`admin`, PSR-12 + escaping lint clean.
+
+**T29 note:** BUILD-ORDER lists no explicit acceptance criteria for T29 either; scope was
+derived directly from §12's own "Path B" text (front matter form, SHA-256 conflict detection,
+git commit with the session identity, surfacing the translation group, "language ... determines
+the file's location; changing it later is a move"), the same pattern T20/T21/T25/T28/T34 already
+established. New namespace `Cuniform\Admin\Editor\` in `src/Admin/`, plus two new pages,
+`admin/documents.php` (list + translation status + "new post/page" links) and `admin/editor.php`
+(the front matter form itself, POSTing back to itself for save/move).
+
+**`FrontMatterEmitter` moved from `Cuniform\Import` to `Cuniform\Content\FrontMatter`.** T37
+built it as the WXR importer's own front-matter writer, but "serialize front matter back to
+disk" is a general content-layer concern, not an import-specific one — `Cuniform\Admin\Editor`
+depending on `Cuniform\Import` for it would have been the wrong coupling, so it moved to sit
+next to `FrontMatterParser`, the class it's the inverse of. `WxrImporter` only needed a `use`
+statement added; its own behaviour is unchanged (`WxrImporterTest`/`ImportVerifierTest` still
+pass unmodified). Extended while there: it now accepts `int`/`float` values too, emitted bare/
+unquoted rather than quoted — needed for `nav_order`/`sitemap_priority` (§6.2), which nothing
+before T29 ever emitted (WxrImporter, T37, is posts-only), and which `FrontMatterParser::
+optionalInt()`/`optionalFloat()` require to arrive as a real int/float, not a quoted string.
+
+**Save validates by round-tripping through the real `FrontMatterParser`, not a second copy of
+its rules.** `EditorDocumentStore::save()`/`move()` build a front matter block with
+`FrontMatterEmitter` and immediately re-parse it with `FrontMatterParser` — the same class T4
+built and every build-blocking condition in §5.5 is already tested against. An invalid slug,
+a missing required key, `image` without `image_alt`, an out-of-range `nav_group`/`legal`/
+`status` value all surface as the *authoritative* error message, not a second, differently-
+worded one invented in the editor. `FrontMatterParser::SLUG_PATTERN`/`ISO8601_PATTERN` were
+made `public const` (previously `private`) so the store's own pre-flight path derivation for a
+*new* document — it has to guess a filename before it can even call the parser — can reuse
+them instead of drifting a second copy.
+
+**Conflict handling, and "invalid," are outcomes, not exceptions.** `EditorSaveOutcome`/
+`EditorSaveStatus` mirror `Auth\LoginService`/`LoginOutcome`/`LoginStatus` (T28) exactly: a
+stale SHA-256 or invalid front matter are expected, form-submission-shaped results the editor
+page re-renders inline, not failures that should look like a 500 — and `AdminException` is
+`final`, so a data-carrying subclass for "conflict" was never actually an option. On conflict,
+`EditorSaveOutcome` carries both the freshly-reloaded `EditorDocument` and the *exact on-disk
+bytes* (`currentRaw`) — the typed document alone would only let the editor page reconstruct an
+approximation of what's actually on disk. `LineDiffer` (a small classic LCS diff — no runtime
+dependency exists for this, CLAUDE.md) renders that against what the operator was about to
+write; above 2000 lines on either side it falls back to a coarse "all removed, all added" diff
+rather than building an O(n·m) table for a synchronous admin request.
+
+**A document identifier is always resolved against `DocumentIndex::discover()`.** SPEC §13.2:
+"the editor taking a document identifier, never a path from the request." `EditorDocumentStore`
+never joins a request value onto the content root and trusts it — it looks the identifier up
+against the actual set of files `ContentDiscoverer` (T19) finds, and `AdminException::
+documentNotFound()` otherwise. `DocumentIndex::summaries()` (the richer, parsed listing
+`admin/documents.php` renders) deliberately does *not* fail the whole listing over one
+document's invalid front matter, unlike the build pipeline's own "collect everything, then
+fail" (§5.5) — a single broken file elsewhere in the tree would otherwise make the entire editor
+unusable, including for fixing the very file that's broken. It's skipped from the listing and
+its error surfaced instead.
+
+**`git push` is a real, tested `GitRepository` capability that nothing calls yet.** SPEC §12
+says "optionally push," but no config key exists to opt into it, and auto-pushing to a remote
+from an unattended save action is exactly the kind of hard-to-reverse, shared-state action this
+project's own conventions (CLAUDE.md's "Executing actions with care") say needs an explicit
+decision, not a default silently wired in. `GitRepository::push()` exists and is tested (fails
+gracefully, returning `false`, rather than throwing, when there's no remote); a future opt-in
+only has to call it. `addAndCommit()` sets `-c user.name=`/`-c user.email=` per invocation
+rather than relying on a global `~/.gitconfig` existing for whichever system user runs the
+admin FPM pool (§15.1's `cuniform-web`) — SPEC's "session identity" is the signed-in operator
+(`Session::$username`, paired with `config.mail.notify` as the one already-configured operator
+contact address — SPEC defines no separate per-account email, and T28 didn't add one), not a
+fixed service identity. `GitRepository`'s cwd is `content/` itself, not the project root: git
+walks upward from wherever it's invoked to find the repository root on its own, so a path like
+`posts/en/2026/...` — already relative to `content/`, which is what every identifier in this
+codebase already is — resolves correctly without needing a `content/` prefix stitched onto it.
+
+**A move is a delete-and-add in one commit, not two.** `EditorDocumentStore::move()` writes
+the new file, `unlink()`s the old one, then calls `GitRepository::addAndCommit()` with *both*
+paths — `git add -A -- old new` stages the deletion and the addition together, which git's own
+history view recognises as a rename, without shelling out to a second `git mv` command. A move
+always requires a fresh slug (§5.4: "Slugs are per-language by design") — there's no sense in
+which the old slug is still correct once the language segment changes, so `move()` takes one
+explicitly rather than reusing the old value.
+
+**Three deliberate scope reductions**, each documented in code rather than silently decided:
+
+1. **New-page creation is flat** (`pages/<language>/<slug>.md`) — §6.3's directory hierarchy
+   isn't built for *creating* a new nested page. Editing an existing nested page works fine
+   (load/save operate on its already-known identifier, wherever it sits), same shape as T37's
+   own "posts only, this pass."
+2. **The media picker isn't built here** — SPEC §12 names it in the same breath as the front
+   matter form, but BUILD-ORDER's own task split gives it to T31 ("media library with upload
+   validation and re-encoding"), and a picker has nothing safe to pick from before that
+   validation exists. The editor's image field is a plain path input for now, with a note in
+   the UI pointing at T31.
+3. **The shortcode inserter is a static reference, not a click-to-insert control.** Inserting
+   a snippet at the textarea's cursor position needs JavaScript, and admin pages currently ship
+   *zero* script, inline or external (`script-src 'none'`, T28) — deliberately, since SPEC
+   §14.1's CSP reasoning for the *public* site doesn't even apply to admin (its responses are
+   dynamic, so a nonce would work), but T28 chose the simpler "no script at all" for every
+   admin page rather than opening that door for one feature. Revisiting this is a CSP decision,
+   not something to do silently inside this task.
+
+**"Publish" is the status field, not a second endpoint.** SPEC §12 lists "on save" and "on
+publish" as two sub-bullets of the same editing action, differing only in whether `status`
+flips to `published` too — there's nothing structurally different to build beyond what the
+front matter form's `status` select already does. Actually enqueuing a build on publish is
+T32's own task ("Build enqueue via request file") and isn't built yet; a save that sets
+`status: published` commits the change, same as any other save, and nothing more.
+
+Verified against a real temporary git repository (`proc_open`, not a shell string) through
+`GitRepositoryTest`/`EditorDocumentStoreTest`: create, update, conflict (refuse + exact-bytes
+diff), invalid front matter (no write, no commit), move (single rename-shaped commit, clean
+`git status` after), and a same-content resave that correctly skips committing (`git commit`
+would otherwise fail with "nothing to commit"). `make check`: 797 tests (up from 765), PHPStan
+level 8 clean, PSR-12 + escaping lint clean.
 
 **T30 acceptance:** preview output is byte-identical to build output for the same document,
 apart from the injected banner. A divergence is a failing test, not a note.

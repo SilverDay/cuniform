@@ -1,62 +1,50 @@
-# Session Handover — 2026-09-09 (README + deployment guide)
+# Session Handover — 2026-09-10 (T28: Admin auth)
 
-Point-in-time snapshot for picking this work back up. Code-wise, nothing changed since T39 —
-this session's work was entirely documentation: the stale scaffold `README.md` (written before
-T1 existed, describing the repo as containing "no implementation code by design") was replaced
-with one that actually describes the built project, then expanded into a full step-by-step
-deployment guide (system users, directory bootstrap, git-push wiring, a generalized sample
-Apache vhost, systemd unit installation, first build). Both are pushed to `origin/main`.
+Point-in-time snapshot for picking this work back up. This session implemented T28 (SPEC §13.1)
+— the admin authentication engine and its login/logout screens — the first M5 work done. The
+prior session's README/deployment-guide work (2026-09-09) is unchanged and still accurate.
 `docs/SPEC.md` and `docs/BUILD-ORDER.md` remain authoritative for the engine itself; this file
 explains the *why* behind decisions those documents don't fully capture, and what to do next.
 Safe to delete once it goes stale.
 
-## Build status (unchanged since T39 — see BUILD-ORDER.md for task-level detail)
+## Build status (see BUILD-ORDER.md for task-level detail)
 
 M1-M3 fully done. M4: T25 done, T26 not applicable (live site is down, nothing to snapshot),
 T27 deliverables built but not yet verified against a live host (checkbox left open on
-purpose). **M6 (Import, P3) done except T36** (media downloader — skipped at the operator's own
-direction; the real export has no media to validate a downloader against). **M5 (Admin) not
-started** — see the important note below on why that's expected to stay true for a while.
+purpose). M6 (Import, P3) done except T36 (media downloader — skipped at the operator's own
+direction; the real export has no media to validate a downloader against). **M5 (Admin): T28
+done** (this session — see BUILD-ORDER.md's T28 note for the full design writeup); T29-33 not
+started.
 
 ## Important operational context for future sessions
 
-**The operator does not have enough remaining usage budget to build the admin panel (M5:
-T28-33) right now.** This was stated explicitly this session ("We do not have enough usage left
-for the admin panel, so I want you to replace the current readme..."). M5 is by far the largest
-remaining milestone — auth with TOTP, a browser editor, preview rendering, a media library, an
-audit log — and building it properly (with the same test coverage and real-corpus validation
-discipline every other milestone in this project got) is a substantial effort.
+**The prior budget concern that parked M5 has been lifted.** A 2026-09-09 session recorded that
+the operator didn't have budget for M5 and should not be started without confirming first (see
+`[[budget_constraint_admin_panel]]` in memory). This session opened by asking directly, and the
+operator said to start M5 now — that memory has been updated accordingly. Future sessions can
+treat M5 as normally in-progress; no need to re-ask before continuing T29 unless a similar
+constraint resurfaces.
 
-**Do not start M5 tasks (T28-33) without confirming the operator wants to spend the budget on
-it.** If asked to "continue" without a specific task named, the safer assumption is doc/content
-work, small fixes, or T36, not launching into T28. If genuinely unsure which task to pick up,
-ask rather than guessing — this is exactly the kind of budget-sensitive call this project's own
-standing rules already say to stop and check on.
+**T29 (Editor) is next in M5's own numeric order**, and now has a real session/CSRF layer to
+build on: `admin_require_session()` (admin/bootstrap.php) protects a page, and
+`admin_csrf_value()`/`admin_csrf_valid()` (same file) are the CSRF primitives every
+state-changing form should use, the same way login.php/logout.php already do. T29's own SHA-256
+conflict detection and `proc_open`-based git commit are unrelated to T28 and start from scratch.
 
 ## Current state
 
-- `make check` is green: 658 tests, 1321 assertions, PHPStan level 8, PSR-12 + escaping lint —
-  unchanged this session, since no source files were touched.
-- `README.md` now documents: what's actually built (with an honest status table, not
-  overclaiming M5), requirements, local dev setup, the full CLI reference (kept in sync with
-  `Application::usage()`'s literal text), `make check`, project layout, a 5-step deployment
-  walkthrough, and the WordPress import workflow.
-- The sample vhost in the README's Deployment section is a **generalized, placeholder-domain
-  version** of `deploy/apache/blog.silverday.de.conf` (this project's own real, hostname-specific
-  file) — written so it reads as a copy-adaptable template rather than duplicating the real file
-  verbatim (drift risk if kept byte-identical). The README explicitly points back to the real
-  file as the authoritative one to copy from for this actual deployment.
-- One thing caught and fixed while drafting: an early version of the deployment steps included
-  `composer install --no-dev` in production — removed, since it contradicted this project's own
-  "zero runtime dependencies, vendor/ never deployed" claim (stated at the top of the same
-  README). `bin/cuniform` never touches `vendor/autoload.php`; only the hand-rolled
-  `src/autoload.php` matters at runtime.
+- `make check` is green: 765 tests, 1524 assertions (up from 658/1321 before this session),
+  PHPStan level 8 clean across `src`, `bin`, `tests`, and `admin` (the last of these newly
+  added to `phpstan.neon.dist` — `admin/` had no PHP files to analyse before T28), PSR-12 +
+  escaping lint clean.
+- `README.md` (from the prior session) still documents what's built, but its status table now
+  undersells things slightly — M5/T28 is done — worth a small update next time README is
+  touched; not done this session to keep the diff focused on T28 itself.
 
 ## What's still deferred and why
 
-- **M5 (Admin, T28-33)** — not a technical deferral, a budget one (see the note above). Nothing
-  about the engine blocks starting it; SPEC §13 and BUILD-ORDER's own T28-33 rows are ready to
-  work from whenever the operator decides to spend on it.
+- **T29-33 (the rest of M5)** — not started, no blocker beyond sequencing. T29 (editor) is
+  next in BUILD-ORDER's own order and depends on T28, now satisfied.
 - T36 (media downloader) — skipped at the operator's own direction; still needed as a general
   capability (SPEC §A.3), but has nothing real to validate against in this export.
 - Actually promoting a `keep`-decided imported document into `content/`, or deleting a
@@ -67,8 +55,11 @@ standing rules already say to stop and check on.
 
 ## Recommended next step
 
-No coding task is queued. The two live options, in order of what actually gets the site
-publishing sooner:
+**T29** (Editor with front matter form, SHA-256 conflict detection, git commit via
+`proc_open`, SPEC §12) is the natural next task — it depends on T28, which is now done, and
+BUILD-ORDER's own M5 table has nothing else unblocked ahead of it (T31/T32 also depend on T28
+but are listed after T29). Two independent, smaller options remain live too if T29 isn't what's
+wanted next:
 
 1. **A content decision, not a coding task**: run `cuniform review-status` against the real
    WXR import, mark each of the six real documents `keep` or `reject` per SPEC §A.5's checklist,
@@ -78,5 +69,3 @@ publishing sooner:
    Path A, until P2 exists).
 2. **T36** (media downloader) if there turns out to be real media to import after all, or if
    it's worth building ahead of need.
-
-M5 (Admin) stays parked until the operator explicitly says to spend budget on it.

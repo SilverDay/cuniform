@@ -297,6 +297,53 @@ final class ApplicationTest extends TestCase
         self::assertStringContainsString('"decision": "reject"', $contents);
     }
 
+    public function testAdminCreateAccountRequiresAUsername(): void
+    {
+        self::assertSame(2, $this->app()->run(['admin-create-account']));
+    }
+
+    public function testAdminCreateAccountFailsForAnEmptyPasswordFile(): void
+    {
+        $passwordFile = $this->writePasswordFile('');
+
+        self::assertSame(1, $this->app()->run(['admin-create-account', 'operator', "--password-file={$passwordFile}"]));
+    }
+
+    public function testAdminCreateAccountSucceedsAndWritesTheAccountStore(): void
+    {
+        $passwordFile = $this->writePasswordFile('a-long-enough-passphrase');
+
+        self::assertSame(0, $this->app()->run(['admin-create-account', 'operator', "--password-file={$passwordFile}"]));
+
+        $accountsPath = $this->projectRoot . '/var/admin/accounts.json';
+        self::assertFileExists($accountsPath);
+        self::assertStringContainsString('"operator"', (string) file_get_contents($accountsPath));
+    }
+
+    public function testAdminCreateAccountFailsForAnAlreadyExistingUsername(): void
+    {
+        $passwordFile = $this->writePasswordFile('a-long-enough-passphrase');
+        self::assertSame(0, $this->app()->run(['admin-create-account', 'operator', "--password-file={$passwordFile}"]));
+
+        self::assertSame(1, $this->app()->run(['admin-create-account', 'operator', "--password-file={$passwordFile}"]));
+    }
+
+    public function testAdminCreateAccountFailsForATooShortPassword(): void
+    {
+        $passwordFile = $this->writePasswordFile('short');
+
+        self::assertSame(1, $this->app()->run(['admin-create-account', 'operator', "--password-file={$passwordFile}"]));
+        self::assertFileDoesNotExist($this->projectRoot . '/var/admin/accounts.json');
+    }
+
+    private function writePasswordFile(string $password): string
+    {
+        $path = $this->projectRoot . '/var/password-' . uniqid() . '.txt';
+        file_put_contents($path, $password . "\n");
+
+        return $path;
+    }
+
     private function app(): Application
     {
         return new Application($this->projectRoot);

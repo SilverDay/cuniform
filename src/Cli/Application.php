@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cuniform\Cli;
 
+use Cuniform\Admin\Auth\AccountEnrollment;
+use Cuniform\Admin\Auth\AdminAccountStore;
 use Cuniform\Build\BuildLock;
 use Cuniform\Build\BuildOptions;
 use Cuniform\Build\BuildPipeline;
@@ -63,6 +65,14 @@ use Cuniform\Import\WxrReader;
  * the actual review-and-decide workflow, run as many times as needed
  * across as many sessions as it takes ("an interrupted review can resume
  * rather than restart").
+ *
+ * `admin-create-account` (T28, SPEC §13.1) bootstraps the (single, for
+ * now — P2 has no self-registration) admin operator account: password,
+ * TOTP secret, and ten recovery codes, all generated here and shown
+ * exactly once. The password is read from `--password-file=<path>` (a
+ * scriptable, testable alternative to an interactive masked prompt — see
+ * this method's own docblock) or, failing that, one line from STDIN;
+ * never from an argument, which `ps`/shell history would expose.
  */
 final class Application
 {
@@ -111,6 +121,10 @@ final class Application
 
         if ($command === 'review-mark') {
             return $this->reviewMark($arguments);
+        }
+
+        if ($command === 'admin-create-account') {
+            return $this->adminCreateAccount($arguments);
         }
 
         if ($command !== 'build') {
@@ -479,6 +493,94 @@ final class Application
         return 0;
     }
 
+    /**
+     * @param list<string> $arguments
+     */
+    private function adminCreateAccount(array $arguments): int
+    {
+        if ($arguments === [] || str_starts_with($arguments[0], '--')) {
+            fwrite(STDERR, "cuniform: admin-create-account requires a username\n" . $this->usage());
+
+            return 2;
+        }
+
+        $username     = array_shift($arguments);
+        $passwordFile = null;
+
+        foreach ($arguments as $argument) {
+            if (str_starts_with($argument, '--password-file=')) {
+                $passwordFile = substr($argument, strlen('--password-file='));
+
+                continue;
+            }
+
+            fwrite(STDERR, "cuniform: unknown option '{$argument}'\n" . $this->usage());
+
+            return 2;
+        }
+
+        try {
+            $config = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: admin-create-account failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        $password = $this->readPassword($passwordFile);
+        if ($password === '') {
+            fwrite(STDERR, "cuniform: admin-create-account failed\nno password given "
+                . "(--password-file=<path>, or pipe one line on STDIN)\n");
+
+            return 1;
+        }
+
+        $accountsPath = rtrim($config->paths->var, '/') . '/admin/accounts.json';
+
+        try {
+            $enrollment = (new AccountEnrollment(new AdminAccountStore($accountsPath), issuer: $config->title))
+                ->enroll($username, $password);
+        } catch (CuniformException $e) {
+            fwrite(STDERR, "cuniform: admin-create-account failed\n{$e->getMessage()}\n");
+
+            return 1;
+        }
+
+        fwrite(STDOUT, "cuniform: admin account '{$username}' created -> {$accountsPath}\n\n");
+        fwrite(STDOUT, "TOTP secret (base32, enter manually if you can't scan a QR code):\n  {$enrollment->totpSecretBase32}\n\n");
+        fwrite(STDOUT, "TOTP provisioning URI (feed this to any QR code generator):\n  {$enrollment->totpProvisioningUri}\n\n");
+        fwrite(STDOUT, "Recovery codes (SPEC §13.1 — single-use, shown once, store them somewhere safe):\n");
+        foreach ($enrollment->recoveryCodes as $code) {
+            fwrite(STDOUT, "  {$code}\n");
+        }
+        fwrite(STDOUT, "\ncuniform: none of the above is recoverable — it is not stored in plaintext anywhere.\n");
+
+        return 0;
+    }
+
+    /**
+     * `--password-file=<path>` is the primary, testable path (a real
+     * interactive masked prompt can't be exercised by a same-process
+     * PHPUnit run — the same "thin and untested directly" boundary
+     * StreamHttpFetcher already draws around real I/O, T25's own note).
+     * Without it, one line is read from STDIN — usable non-interactively
+     * (`echo "$PW" | cuniform admin-create-account ...`) without ever
+     * putting the password in `$argv`, which `ps`/shell history would
+     * otherwise expose.
+     */
+    private function readPassword(?string $passwordFile): string
+    {
+        if ($passwordFile !== null) {
+            $contents = is_file($passwordFile) ? file_get_contents($passwordFile) : false;
+
+            return $contents === false ? '' : trim($contents);
+        }
+
+        $line = fgets(STDIN);
+
+        return $line === false ? '' : trim($line);
+    }
+
     private function setupPublic(): int
     {
         try {
@@ -572,6 +674,7 @@ final class Application
           cuniform import-wxr <path-to-export.xml> [--output-dir=<path>] [--review-file=<path>]
           cuniform review-status [--file=<path>]
           cuniform review-mark <source-id> <pending|keep|reject> [--file=<path>]
+          cuniform admin-create-account <username> [--password-file=<path>]
 
         TXT;
     }

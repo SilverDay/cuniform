@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Cuniform\Import;
 
 use Cuniform\Content\FrontMatter\DocumentStatus;
+use Cuniform\Content\FrontMatter\FrontMatterEmitter;
 use Cuniform\Content\Slugifier;
 
 /**
