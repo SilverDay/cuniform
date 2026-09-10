@@ -246,6 +246,30 @@ final class EditorDocumentStore
         );
     }
 
+    /**
+     * The relative path $request would live at once saved — the same path
+     * save() itself resolves internally (an existing identifier's own
+     * on-disk path, or a derived new one), exposed read-only so
+     * PreviewRenderer (T30, SPEC §12 Path C) can splice an unsaved buffer
+     * into the real corpus at the position it will occupy once saved,
+     * without duplicating deriveNewRelativePath()'s rules.
+     *
+     * @return array{path: ?string, errors: list<string>}
+     */
+    public function previewPath(EditorSaveRequest $request): array
+    {
+        if ($request->identifier === null) {
+            return $this->deriveNewRelativePath($request);
+        }
+
+        $discovered = $this->findDiscovered($request->identifier);
+        if ($discovered === null) {
+            return ['path' => null, 'errors' => ["'{$request->identifier}' no longer exists — it may have been deleted or edited elsewhere."]];
+        }
+
+        return ['path' => $discovered->relativePath, 'errors' => []];
+    }
+
     private function loadDiscovered(DiscoveredDocument $discovered): EditorDocument
     {
         $raw         = $this->gateway->read($discovered->absolutePath);

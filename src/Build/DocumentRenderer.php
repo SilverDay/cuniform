@@ -31,16 +31,43 @@ final class DocumentRenderer
      */
     public function render(ResolvedDocument $document, array $includedPages): RenderedDocument
     {
+        [$adapter, $kind] = $this->adapterFor($document, $includedPages);
+
+        return $adapter->render($document->parsed->discovered->absolutePath, $kind);
+    }
+
+    /**
+     * Renders $raw in place of the document's on-disk bytes — used by
+     * preview (SPEC §12 Path C, T30) for an unsaved editor buffer that may
+     * not match, or exist, on disk. Same include chain, same depth, same
+     * shortcode handler set as render() — the only difference is where the
+     * Markdown source comes from.
+     *
+     * @param list<ParsedDocument> $includedPages
+     */
+    public function renderContent(ResolvedDocument $document, string $raw, array $includedPages): RenderedDocument
+    {
+        [$adapter, $kind] = $this->adapterFor($document, $includedPages);
+
+        return $adapter->renderContent($raw, $kind, $document->parsed->discovered->absolutePath);
+    }
+
+    /**
+     * @param  list<ParsedDocument>            $includedPages
+     * @return array{0: \Cuniform\Render\RenderAdapter, 1: DocumentKind}
+     */
+    private function adapterFor(ResolvedDocument $document, array $includedPages): array
+    {
         $slug     = $document->parsed->frontMatter->shared->slug;
         $language = $document->parsed->discovered->language;
         $kind     = $document->parsed->frontMatter instanceof PageFrontMatter
             ? DocumentKind::Page
             : DocumentKind::Post;
 
-        $chain = [$slug];
-        $repo  = new IncludeResolvingPageRepository($includedPages, $this->adapterFactory, 1, $chain);
+        $chain   = [$slug];
+        $repo    = new IncludeResolvingPageRepository($includedPages, $this->adapterFactory, 1, $chain);
         $adapter = $this->adapterFactory->create($language, 0, $chain, $repo);
 
-        return $adapter->render($document->parsed->discovered->absolutePath, $kind);
+        return [$adapter, $kind];
     }
 }

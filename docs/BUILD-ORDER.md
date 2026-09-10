@@ -508,7 +508,7 @@ that point too (`curl -I https://blog.silverday.de/de/does-not-exist/` should co
 |---|--------|------|------|------|
 | T28 | [x] | Auth: Argon2id, TOTP, recovery codes, sessions, rate limiting | T23 | §13.1 |
 | T29 | [x] | Editor with front matter form, SHA-256 conflict detection, git commit via `proc_open` | T28 | §12 |
-| T30 | [ ] | Preview rendering through the identical C3/C4/C5 chain | T29 | §12 |
+| T30 | [x] | Preview rendering through the identical C3/C4/C5 chain | T29 | §12 |
 | T31 | [ ] | Media library with upload validation and re-encoding | T28 | §13.2 |
 | T32 | [ ] | Build enqueue via request file, consumed by the systemd unit | T27, T28 | §10.5 |
 | T33 | [ ] | Dashboard, lists, translation-status visibility, build log, rollback, audit log | T29 | §13.3 |
@@ -706,6 +706,65 @@ level 8 clean, PSR-12 + escaping lint clean.
 
 **T30 acceptance:** preview output is byte-identical to build output for the same document,
 apart from the injected banner. A divergence is a failing test, not a note.
+
+**T30 note:** `PreviewRenderer` (new namespace `Cuniform\Admin\Preview\`) does not
+reimplement rendering — it calls the same stage 2-6 classes `BuildPipeline` itself calls
+(`ContentDiscoverer`/`DocumentParser`, `SiteResolver`, `DocumentRenderer`, `SiteTemplateStage`),
+which is what makes "byte-identical to build output" a property of reuse rather than
+something to keep in sync by hand. The one substitution: the document being previewed is
+spliced into the real, on-disk corpus in its own place, with `$request`'s raw bytes (an
+editor buffer that may be unsaved, or may not exist on disk at all yet) standing in for
+whatever `DocumentParser` would otherwise have read from disk — every other document in the
+corpus still renders from disk, unaffected. `RenderAdapter`/`DocumentRenderer` each gained a
+`renderContent()` alongside the existing `render()` (disk path) — same front matter parser,
+same shortcode pass, same renderer instance, just skipping the filesystem-gateway read step —
+so `render()`'s own behaviour and tests are untouched.
+
+A draft or not-yet-due scheduled document (§5.6) never reaches `SiteResolver`'s included set
+in a real build — but §12 requires preview to work for exactly those. One documented
+judgment call: the previewed document's own `status` is coerced to `published` for this
+render only, before splicing, purely for routing/hreflang/nav purposes — this is what
+"renders as it will look once actually published" has to mean, and no template reads the
+`status` field itself (confirmed by inspection: it appears nowhere under `templates/`), so
+the coercion is invisible in the output bytes for an already-published document — exactly the
+case the byte-identity test exercises.
+
+The banner itself (`PreviewBanner`) is delimited by HTML comment markers rather than a fixed
+string, with a matching `strip()` — that pairing is what makes "byte-identical apart from the
+banner" mechanically testable rather than asserted by eye. It's inserted immediately after
+the single `<body>` tag `layout.php` always emits, never before it, so everything CSP-relevant
+in `<head>` stays exactly what a real build would produce.
+
+`EditorDocumentStore` gained one read-only method, `previewPath()`, reusing its own existing
+`deriveNewRelativePath()`/`findDiscovered()` rather than duplicating that derivation — the
+same path `save()` would resolve internally, exposed so preview can splice at the right
+position without guessing. Admin wiring: `AdminContext`/`AdminBootstrap` gained a
+`previewRenderer` service (shares `$config`/`$editorDocumentStore` with the editor); the
+editor form's field-to-`EditorSaveRequest` mapping — previously defined inline at the top of
+`editor.php` — moved to a new shared file, `admin/editor_form.php`, required by both
+`editor.php` and the new `admin/preview.php`, since a POST to `admin/editor.php`
+(`form_action=save`) and a POST to `admin/preview.php` need to parse the identical set of
+form fields and a plain `require __DIR__.'/editor.php'` would execute that page's own save
+logic as a side effect. `editor.php` gained one more submit button
+(`formaction="/admin/preview.php" formtarget="_blank"`) next to Save, posting the same form to
+the new endpoint — consistent with T28/T29's "admin ships zero script" convention, so preview
+is a real page navigation (opened in a new tab) rather than an AJAX call. `admin/preview.php`
+requires a valid session and a valid CSRF token (POST-only — a GET has no buffer to render)
+and always sets `X-Robots-Tag: noindex, nofollow` and `Cache-Control: no-store` (§12), on both
+the success and the invalid-input path. It never writes to `content/`, `releases/`, or
+`public` — `PreviewRenderer` only reads.
+
+Verified against the real fixture corpus (`tests/fixtures/Build/content`, the same one
+`BuildPipelineTest` uses): a real `BuildPipeline` run and a `PreviewRenderer::render()` call
+against the identical, unmodified document (`posts/de/2026/2026-03-14-sicherheitskultur.md` —
+translation link, image, `[figure]`, `[include]`, aliases, all exercised) produce HTML that is
+byte-identical once `PreviewBanner::strip()` removes the banner; preview of the fixture's
+draft and not-yet-due-scheduled posts (both of which a real build excludes entirely) succeeds
+and renders their content; an unsaved body edit shows up in the rendered output while the
+on-disk file is confirmed byte-unchanged after the call; an unconfigured language and an
+unknown identifier both come back as `PreviewResult::invalid()` rather than throwing.
+`make check`: 811 tests (up from 797), PHPStan level 8 clean across `src`, `bin`, `tests`,
+`admin`, PSR-12 + escaping lint clean.
 
 **T32 acceptance:** the admin process cannot write to `releases/` or `public` — verified by
 file permissions, not by convention.

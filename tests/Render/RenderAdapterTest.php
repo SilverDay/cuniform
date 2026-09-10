@@ -137,6 +137,26 @@ final class RenderAdapterTest extends TestCase
         self::assertStringNotContainsString('[toc]', $result->bodyHtml);
     }
 
+    public function testRenderContentProducesTheSameResultAsRenderForIdenticalBytes(): void
+    {
+        $doc = "---\ntitle: Security Culture\nslug: security-culture\nstatus: published\nsummary: S\ndate: 2026-03-14\n---\n# Heading\n\nBody **text**.";
+        $path = $this->write('post.md', $doc);
+
+        $fromDisk = $this->adapter()->render($path, DocumentKind::Post);
+        $fromBuffer = $this->adapter()->renderContent($doc, DocumentKind::Post, $path);
+
+        self::assertEquals($fromDisk, $fromBuffer);
+    }
+
+    public function testRenderContentNeverTouchesTheFilesystemForAPathThatDoesNotExist(): void
+    {
+        $doc = "---\ntitle: Unsaved\nslug: unsaved\nstatus: draft\nsummary: S\ndate: 2026-03-14\n---\nUnsaved buffer body.";
+
+        $result = $this->adapter()->renderContent($doc, DocumentKind::Post, $this->root . '/does-not-exist-on-disk.md');
+
+        self::assertStringContainsString('Unsaved buffer body.', $result->bodyHtml);
+    }
+
     public function testConstructorRejectsANonHeadlessRenderer(): void
     {
         $this->expectException(\Cuniform\Render\RenderException::class);

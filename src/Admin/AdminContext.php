@@ -8,6 +8,7 @@ use Cuniform\Admin\Auth\AdminCookie;
 use Cuniform\Admin\Auth\CsrfToken;
 use Cuniform\Admin\Auth\LoginService;
 use Cuniform\Admin\Editor\EditorDocumentStore;
+use Cuniform\Admin\Preview\PreviewRenderer;
 use Cuniform\Config\Config;
 
 /**
@@ -24,6 +25,7 @@ final class AdminContext
         public readonly AdminCookie $adminCookie,
         public readonly CsrfToken $csrfToken,
         public readonly EditorDocumentStore $editorDocumentStore,
+        public readonly PreviewRenderer $previewRenderer,
     ) {
     }
 }

@@ -107,6 +107,49 @@ final class EditorDocumentStoreTest extends TestCase
         self::assertSame([], $this->store->translations($doc));
     }
 
+    public function testPreviewPathOfAnExistingIdentifierIsItsOnDiskRelativePath(): void
+    {
+        $request = $this->postRequest(
+            identifier: 'posts/en/2026/2026-03-14-hello.md',
+            expectedSha256: 'irrelevant-for-preview',
+            slug: 'hello',
+            title: 'Hello',
+            date: '2026-03-14T10:00:00+01:00',
+        );
+
+        $result = $this->store->previewPath($request);
+
+        self::assertSame('posts/en/2026/2026-03-14-hello.md', $result['path']);
+        self::assertSame([], $result['errors']);
+    }
+
+    public function testPreviewPathOfANewDocumentIsTheSameDerivedPathSaveWouldUse(): void
+    {
+        $request = $this->postRequest(identifier: null, expectedSha256: null, slug: 'brand-new', title: 'Brand New', date: '2026-06-01T09:00:00+01:00');
+
+        $result = $this->store->previewPath($request);
+
+        self::assertSame('posts/en/2026/2026-06-01-brand-new.md', $result['path']);
+        self::assertSame([], $result['errors']);
+        self::assertFileDoesNotExist($this->contentRoot . '/posts/en/2026/2026-06-01-brand-new.md', 'preview must never write anything');
+    }
+
+    public function testPreviewPathOfAnUnknownIdentifierIsAnError(): void
+    {
+        $request = $this->postRequest(
+            identifier: 'posts/en/2026/does-not-exist.md',
+            expectedSha256: null,
+            slug: 'x',
+            title: 'X',
+            date: '2026-06-01T09:00:00+01:00',
+        );
+
+        $result = $this->store->previewPath($request);
+
+        self::assertNull($result['path']);
+        self::assertNotEmpty($result['errors']);
+    }
+
     public function testSaveCreatesANewPostAtTheDerivedPathAndCommitsIt(): void
     {
         $request = $this->postRequest(identifier: null, expectedSha256: null, slug: 'new-post', title: 'New Post', date: '2026-04-01T09:00:00+01:00');

@@ -50,8 +50,21 @@ final class RenderAdapter
 
     public function render(string $path, DocumentKind $kind): RenderedDocument
     {
-        $raw         = $this->gateway->read($path);
-        $frontMatter = $this->frontMatterParser->parse($raw, $kind, $path);
+        return $this->renderContent($this->gateway->read($path), $kind, $path);
+    }
+
+    /**
+     * Renders already-loaded raw bytes directly, skipping the filesystem
+     * gateway read entirely. Used by preview (SPEC §12 Path C) to render an
+     * unsaved editor buffer, which may not exist on disk yet or may differ
+     * from what's there — otherwise identical to render(): same front
+     * matter parser, same shortcode pass, same renderer instance.
+     * $originPath is used only to name the document in a parse error; it is
+     * never read from.
+     */
+    public function renderContent(string $raw, DocumentKind $kind, string $originPath): RenderedDocument
+    {
+        $frontMatter = $this->frontMatterParser->parse($raw, $kind, $originPath);
         $bodyHtml    = $this->shortcodes->convert($frontMatter->body);
 
         return new RenderedDocument($frontMatter, $bodyHtml, $this->renderer->getHeadings());

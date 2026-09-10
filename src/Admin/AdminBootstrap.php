@@ -13,6 +13,7 @@ use Cuniform\Admin\Auth\RateLimiter;
 use Cuniform\Admin\Auth\SessionStore;
 use Cuniform\Admin\Editor\EditorDocumentStore;
 use Cuniform\Admin\Editor\GitRepository;
+use Cuniform\Admin\Preview\PreviewRenderer;
 use Cuniform\Config\ConfigLoader;
 
 /**
@@ -53,6 +54,12 @@ final class AdminBootstrap
             new GitRepository($config->paths->content),
         );
 
-        return new AdminContext($config, $loginService, new AdminCookie(), new CsrfToken(), $editorDocumentStore);
+        // Shares $config/$editorDocumentStore with the editor rather than
+        // building its own — previewPath()/render() are the exact same
+        // path-derivation and front-matter-emission logic a save would use
+        // (see PreviewRenderer's own docblock).
+        $previewRenderer = new PreviewRenderer($config, $projectRoot . '/config/lang', $editorDocumentStore);
+
+        return new AdminContext($config, $loginService, new AdminCookie(), new CsrfToken(), $editorDocumentStore, $previewRenderer);
     }
 }
