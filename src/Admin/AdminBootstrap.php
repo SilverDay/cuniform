@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cuniform\Admin;
 
+use Cuniform\Admin\Audit\AuditLogReader;
+use Cuniform\Admin\Audit\AuditLogWriter;
 use Cuniform\Admin\Auth\AdminAccountStore;
 use Cuniform\Admin\Auth\AdminCookie;
 use Cuniform\Admin\Auth\CsrfToken;
@@ -17,6 +19,8 @@ use Cuniform\Admin\Editor\GitRepository;
 use Cuniform\Admin\Media\MediaLibrary;
 use Cuniform\Admin\Media\MediaUploader;
 use Cuniform\Admin\Preview\PreviewRenderer;
+use Cuniform\Admin\Reporting\AdminSiteReport;
+use Cuniform\Build\BuildLogReader;
 use Cuniform\Config\ConfigLoader;
 
 /**
@@ -36,6 +40,7 @@ final class AdminBootstrap
     {
         $config      = (new ConfigLoader())->load($projectRoot . '/config/site.php');
         $adminVarDir = rtrim($config->paths->var, '/') . '/admin';
+        $logDir      = rtrim($config->paths->var, '/') . '/log';
 
         $loginService = new LoginService(
             new AdminAccountStore($adminVarDir . '/accounts.json'),
@@ -51,6 +56,17 @@ final class AdminBootstrap
         // docblock).
         $buildQueue = new BuildRequestQueue(rtrim($config->paths->var, '/') . '/build-requested');
 
+        // A rollback re-points the public symlink — exactly the same
+        // releases/public write this process must never make directly
+        // (SPEC §10.5/§15.1), so it gets the identical enqueue-and-let-a-
+        // privileged-unit-consume treatment as a build, via a second
+        // deploy/systemd/cuniform-rollback.path + .service pair (T33) that
+        // mirrors cuniform-build.path/.service exactly except for what its
+        // .service runs (`bin/cuniform build --rollback`).
+        $rollbackQueue = new BuildRequestQueue(rtrim($config->paths->var, '/') . '/rollback-requested');
+
+        $auditLog = new AuditLogWriter($logDir . '/audit.jsonl');
+
         // GitRepository runs with content/ itself as its cwd, not the
         // project root — EditorDocumentStore's own relative paths
         // ("posts/en/...") are relative to content/, and git resolves a
@@ -63,6 +79,7 @@ final class AdminBootstrap
             $config->timezone,
             new GitRepository($config->paths->content),
             $buildQueue,
+            $auditLog,
         );
 
         // Shares $config/$editorDocumentStore with the editor rather than
@@ -75,6 +92,10 @@ final class AdminBootstrap
         $mediaUploader = new MediaUploader($mediaRoot);
         $mediaLibrary  = new MediaLibrary($config->paths->content);
 
+        $auditLogReader = new AuditLogReader($logDir . '/audit.jsonl');
+        $buildLogReader = new BuildLogReader($logDir . '/build.jsonl');
+        $siteReport     = new AdminSiteReport($config, $projectRoot . '/config/lang');
+
         return new AdminContext(
             $config,
             $loginService,
@@ -85,6 +106,10 @@ final class AdminBootstrap
             $mediaUploader,
             $mediaLibrary,
             $buildQueue,
+            $rollbackQueue,
+            $auditLogReader,
+            $buildLogReader,
+            $siteReport,
         );
     }
 }

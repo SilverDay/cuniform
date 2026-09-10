@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cuniform\Tests\Admin\Editor;
 
 use Cuniform\Admin\AdminException;
+use Cuniform\Admin\Audit\AuditLogReader;
+use Cuniform\Admin\Audit\AuditLogWriter;
 use Cuniform\Admin\Build\BuildRequestQueue;
 use Cuniform\Admin\Editor\EditorDocumentStore;
 use Cuniform\Admin\Editor\EditorSaveRequest;
@@ -20,6 +22,7 @@ final class EditorDocumentStoreTest extends TestCase
     private string $contentRoot;
     private string $varRoot;
     private string $buildRequestPath;
+    private string $auditLogPath;
     private EditorDocumentStore $store;
 
     protected function setUp(): void
@@ -59,6 +62,7 @@ final class EditorDocumentStoreTest extends TestCase
         $this->git($this->contentRoot, ['git', '-c', 'user.name=Setup', '-c', 'user.email=setup@example.test', 'commit', '-q', '-m', 'Initial fixture content']);
 
         $this->buildRequestPath = $this->varRoot . '/build-requested';
+        $this->auditLogPath     = $this->varRoot . '/log/audit.jsonl';
 
         $this->store = new EditorDocumentStore(
             $this->contentRoot,
@@ -66,6 +70,7 @@ final class EditorDocumentStoreTest extends TestCase
             'Europe/Berlin',
             new GitRepository($this->contentRoot),
             new BuildRequestQueue($this->buildRequestPath),
+            new AuditLogWriter($this->auditLogPath),
         );
     }
 
@@ -450,6 +455,53 @@ final class EditorDocumentStoreTest extends TestCase
 
         self::assertSame(EditorSaveStatus::Saved, $outcome->status);
         self::assertFileDoesNotExist($this->buildRequestPath);
+    }
+
+    public function testSavingANewDocumentRecordsACreateAuditEntryWithTheCommitSha(): void
+    {
+        $request = $this->postRequest(identifier: null, expectedSha256: null, slug: 'audited-post', title: 'Audited', date: '2026-04-06T09:00:00+01:00');
+
+        $outcome = $this->store->save($request, 'Jane Operator', 'jane@example.test');
+
+        $entries = (new AuditLogReader($this->auditLogPath))->recent();
+        self::assertCount(1, $entries);
+        self::assertSame('Jane Operator', $entries[0]->actor);
+        self::assertSame('create', $entries[0]->action);
+        self::assertSame('posts/en/2026/2026-04-06-audited-post.md', $entries[0]->identifier);
+        self::assertSame($outcome->commitSha, $entries[0]->commitSha);
+    }
+
+    public function testEditingAnExistingDocumentRecordsAnUpdateAuditEntry(): void
+    {
+        $doc     = $this->store->load('posts/en/2026/2026-03-14-hello.md');
+        $request = $this->postRequest(identifier: $doc->identifier, expectedSha256: $doc->sha256, slug: 'hello', title: 'Hello Edited', date: '2026-03-14T10:00:00+01:00', status: 'published');
+
+        $this->store->save($request, 'Jane', 'jane@example.test');
+
+        $entries = (new AuditLogReader($this->auditLogPath))->recent();
+        self::assertCount(1, $entries);
+        self::assertSame('update', $entries[0]->action);
+    }
+
+    public function testMovingADocumentRecordsAMoveAuditEntry(): void
+    {
+        $this->store->move('posts/en/2026/2026-05-01-standalone.md', 'de', 'alleinstehend', 'Jane', 'jane@example.test');
+
+        $entries = (new AuditLogReader($this->auditLogPath))->recent();
+        self::assertCount(1, $entries);
+        self::assertSame('move', $entries[0]->action);
+        self::assertSame('posts/de/2026/2026-05-01-alleinstehend.md', $entries[0]->identifier);
+    }
+
+    public function testANoOpSaveRecordsNoAuditEntry(): void
+    {
+        $doc = $this->store->load('posts/en/2026/2026-05-01-standalone.md');
+
+        $this->store->save($doc->asSaveRequestForUpdate(), 'Jane', 'jane@example.test');
+        $this->store->save($this->store->load($doc->identifier)->asSaveRequestForUpdate(), 'Jane', 'jane@example.test');
+
+        $entries = (new AuditLogReader($this->auditLogPath))->recent();
+        self::assertCount(1, $entries, 'the second, byte-identical save produced no commit and so must add no audit entry');
     }
 
     private function postRequest(

@@ -83,7 +83,7 @@ header('Content-Type: text/html; charset=UTF-8');
 <body>
 <main class="admin-page">
 <h1><?= e($config->title) ?> — media</h1>
-<p><a href="/admin/index.php">&larr; Dashboard</a></p>
+<nav class="admin-nav"><?= admin_nav_html() ?></nav>
 
 <?php if ($uploadedPath !== null): ?>
 <p class="admin-notice">

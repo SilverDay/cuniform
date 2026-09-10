@@ -1,0 +1,41 @@
+# Rollback-consumer unit (SPEC §10.5's privilege boundary, applied to
+# rollback too, T33): a rollback re-points the `public` symlink — exactly
+# the write to `releases/`/`public` the admin PHP process must never make
+# directly (SPEC §15.1) — so it gets the identical enqueue-and-consume
+# treatment as a build, via its own request file and its own `.path` unit,
+# rather than the admin process calling ReleaseDeployer::rollback() in its
+# own FPM worker.
+#
+# Deliberately a separate unit from cuniform-build.service rather than one
+# unit branching on which request file exists: `bin/cuniform build` and
+# `bin/cuniform build --rollback` are different commands with different
+# ExecStartPre cleanup targets, and two small, single-purpose units are
+# easier to reason about (and to `systemctl status` independently) than one
+# unit with conditional logic in its ExecStart.
+#
+# Install: symlink into /etc/systemd/system/, then `systemctl daemon-reload`.
+# Not `systemctl enable`d itself — only ever pulled in by cuniform-rollback.path.
+[Unit]
+Description=Cuniform rollback (SPEC section 10.5)
+After=network.target
+
+[Service]
+Type=oneshot
+User=cuniform-build
+Group=cuniform-build
+WorkingDirectory=/srv/vhosts/blog.silverday.de
+
+ExecStartPre=/bin/rm -f /srv/vhosts/blog.silverday.de/var/rollback-requested
+ExecStart=/usr/bin/php /srv/vhosts/blog.silverday.de/bin/cuniform build --rollback
+
+StandardOutput=append:/srv/vhosts/blog.silverday.de/var/log/build.log
+StandardError=append:/srv/vhosts/blog.silverday.de/var/log/build.log
+
+# Same defence-in-depth reasoning as cuniform-build.service's own —
+# ReadWritePaths names the whole vhost root because the symlink swap
+# writes a sibling entry (public.new) into the containing directory, not
+# just into public/ itself.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/srv/vhosts/blog.silverday.de
+PrivateTmp=true

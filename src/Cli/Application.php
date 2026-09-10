@@ -6,11 +6,16 @@ namespace Cuniform\Cli;
 
 use Cuniform\Admin\Auth\AccountEnrollment;
 use Cuniform\Admin\Auth\AdminAccountStore;
+use Cuniform\Build\BuildException;
 use Cuniform\Build\BuildLock;
+use Cuniform\Build\BuildLogEntry;
+use Cuniform\Build\BuildLogWriter;
 use Cuniform\Build\BuildOptions;
+use Cuniform\Build\BuildOutcome;
 use Cuniform\Build\BuildPipeline;
 use Cuniform\Build\PublicDirectorySetup;
 use Cuniform\Build\ReleaseDeployer;
+use Cuniform\Config\Config;
 use Cuniform\Config\ConfigLoader;
 use Cuniform\CuniformException;
 use Cuniform\Cutover\LegacyUrlCrawler;
@@ -635,12 +640,19 @@ final class Application
 
     private function build(bool $full, bool $dryRun, bool $allowUrlSchemeChange): int
     {
+        $startedAt = microtime(true);
+        $config    = null;
+
         try {
             $config   = (new ConfigLoader())->load($this->projectRoot . '/config/site.php');
             $pipeline = new BuildPipeline($config, $this->projectRoot . '/config/lang');
             $result   = $pipeline->run(new BuildOptions(full: $full, dryRun: $dryRun, allowUrlSchemeChange: $allowUrlSchemeChange));
         } catch (CuniformException $e) {
             fwrite(STDERR, "cuniform: build failed\n{$e->getMessage()}\n");
+
+            if (!$dryRun) {
+                $this->recordBuildLog($config, $startedAt, BuildOutcome::Failed, [], 0, null, $e->getMessage());
+            }
 
             return 1;
         }
@@ -660,7 +672,50 @@ final class Application
         fwrite(STDOUT, "cuniform: built {$result->documentCount} documents{$reused}, {$result->routeCount} routes -> {$result->releaseDir}\n");
         fwrite(STDOUT, "cuniform: deployed -> {$this->projectRoot}/public\n");
 
+        $this->recordBuildLog($config, $startedAt, BuildOutcome::Success, $result->documentCountByLanguage, $result->routeCount, $result->releaseDir, null);
+
         return 0;
+    }
+
+    /**
+     * SPEC §15.4's build log — written from here, the one point every real
+     * trigger (git push's `post-receive`, the admin-enqueue `.path` unit,
+     * the scheduled-post `.timer`, and a manual `bin/cuniform build`)
+     * converges on, rather than from BuildPipeline itself (see
+     * BuildLogWriter's own docblock). Never called for `--dry-run`: nothing
+     * was deployed, so there's no outcome for a "last build status"
+     * dashboard reading to reflect. `$config` is null only when
+     * ConfigLoader itself failed — there is then no `paths.var` to write a
+     * log into, so logging is silently skipped rather than attempted
+     * against a path this process doesn't actually know.
+     *
+     * @param array<string, int> $documentCountByLanguage
+     */
+    private function recordBuildLog(
+        ?Config $config,
+        float $startedAt,
+        BuildOutcome $outcome,
+        array $documentCountByLanguage,
+        int $routeCount,
+        ?string $releaseDir,
+        ?string $message,
+    ): void {
+        if ($config === null) {
+            return;
+        }
+
+        $writer = new BuildLogWriter(rtrim($config->paths->var, '/') . '/log/build.jsonl');
+        $entry  = new BuildLogEntry(new \DateTimeImmutable(), $outcome, microtime(true) - $startedAt, $documentCountByLanguage, $routeCount, $releaseDir, $message);
+
+        try {
+            $writer->record($entry);
+        } catch (BuildException $e) {
+            // The build's own real outcome is already reported via
+            // stdout/stderr and this method's caller's return value — a
+            // second failure writing *about* that outcome has nothing
+            // more actionable to do than note it and move on.
+            fwrite(STDERR, "cuniform: warning: could not write the build log: {$e->getMessage()}\n");
+        }
     }
 
     private function usage(): string

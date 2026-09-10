@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Cuniform\Admin\Editor;
 
 use Cuniform\Admin\AdminException;
+use Cuniform\Admin\Audit\AuditLogEntry;
+use Cuniform\Admin\Audit\AuditLogWriter;
 use Cuniform\Admin\Build\BuildRequestQueue;
 use Cuniform\Build\DiscoveredDocument;
 use Cuniform\Content\ContentException;
@@ -44,6 +46,12 @@ use Cuniform\Content\FrontMatter\FrontMatterParser;
  * text names only the publish direction, and the already-live page is
  * removed by the next build regardless of what triggers it (manual,
  * scheduled, or a later publish elsewhere).
+ *
+ * SPEC §13.2's audit log ("actor, action, timestamp, and resulting commit
+ * SHA") is recorded here too (T33, AuditLogWriter), immediately after each
+ * real commit — save()'s "nothing actually changed" branch produces no
+ * commit and so gets no audit entry either, same reasoning as the build
+ * queue above.
  */
 final class EditorDocumentStore
 {
@@ -62,6 +70,7 @@ final class EditorDocumentStore
         string $defaultTimezone,
         private readonly GitRepository $git,
         private readonly BuildRequestQueue $buildQueue,
+        private readonly AuditLogWriter $auditLog,
     ) {
         $this->gateway           = new FilesystemGateway($contentRoot);
         $this->frontMatterParser = new FrontMatterParser($defaultTimezone);
@@ -184,13 +193,15 @@ final class EditorDocumentStore
 
         $this->writeAtomically($absolutePath, $rendered);
 
+        $isCreate  = $request->identifier === null;
         $commitSha = $this->git->addAndCommit(
             [$relativePath],
-            $this->commitMessage($relativePath, isCreate: $request->identifier === null),
+            $this->commitMessage($relativePath, $isCreate),
             $authorName,
             $authorEmail,
         );
 
+        $this->auditLog->record(new AuditLogEntry(new \DateTimeImmutable(), $authorName, $isCreate ? 'create' : 'update', $relativePath, $commitSha));
         $this->enqueueBuildIfPublished($saved->status);
 
         return EditorSaveOutcome::saved($saved, $commitSha);
@@ -258,6 +269,7 @@ final class EditorDocumentStore
         $sha256 = hash('sha256', $rendered);
         $moved  = EditorDocument::fromParsed($newRelativePath, $newLanguage, $request->kind, $sha256, $frontMatter);
 
+        $this->auditLog->record(new AuditLogEntry(new \DateTimeImmutable(), $authorName, 'move', $newRelativePath, $commitSha));
         $this->enqueueBuildIfPublished($moved->status);
 
         return EditorSaveOutcome::saved($moved, $commitSha);

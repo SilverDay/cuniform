@@ -211,7 +211,13 @@ final class BuildPipeline
 
         $reusedDocumentCount = count($site->documents) - count($dirty);
 
-        return new BuildResult(count($site->documents), count($pages), $warnings, $releaseDir, $reusedDocumentCount);
+        $documentCountByLanguage = [];
+        foreach ($site->documents as $document) {
+            $language = $document->parsed->discovered->language;
+            $documentCountByLanguage[$language] = ($documentCountByLanguage[$language] ?? 0) + 1;
+        }
+
+        return new BuildResult(count($site->documents), count($pages), $warnings, $releaseDir, $reusedDocumentCount, $documentCountByLanguage);
     }
 
     /**

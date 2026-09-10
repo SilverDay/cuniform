@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cuniform\Tests\Cli;
 
+use Cuniform\Build\BuildLogReader;
+use Cuniform\Build\BuildOutcome;
 use Cuniform\Cli\Application;
 use PHPUnit\Framework\TestCase;
 
@@ -101,6 +103,68 @@ final class ApplicationTest extends TestCase
         unlink($this->projectRoot . '/config/site.php');
 
         self::assertSame(1, $this->app()->run(['build', '--dry-run']));
+    }
+
+    public function testBuildFailureFromAMissingConfigWritesNoBuildLogEntry(): void
+    {
+        // No config means no known paths.var to write a log into at all
+        // (Application::recordBuildLog's own docblock) — this is the one
+        // failure mode a build-log entry can never exist for.
+        unlink($this->projectRoot . '/config/site.php');
+
+        self::assertSame(1, $this->app()->run(['build']));
+        self::assertFileDoesNotExist($this->projectRoot . '/var/log/build.jsonl');
+    }
+
+    public function testPlainBuildRecordsASuccessEntryInTheBuildLog(): void
+    {
+        mkdir($this->projectRoot . '/content/posts/en/2026', 0o755, true);
+        file_put_contents(
+            $this->projectRoot . '/content/posts/en/2026/2026-03-14-hello.md',
+            "---\ntitle: \"Hello\"\nslug: \"hello\"\nstatus: \"published\"\nsummary: \"S\"\ndate: \"2026-03-14\"\n---\nBody.",
+        );
+
+        self::assertSame(0, $this->app()->run(['build']));
+
+        $entries = (new BuildLogReader($this->projectRoot . '/var/log/build.jsonl'))->recent();
+        self::assertCount(1, $entries);
+        self::assertSame(BuildOutcome::Success, $entries[0]->outcome);
+        self::assertGreaterThanOrEqual(0.0, $entries[0]->durationSeconds);
+        self::assertSame(['en' => 1], $entries[0]->documentCountByLanguage);
+        self::assertNotNull($entries[0]->releaseDir);
+        self::assertNull($entries[0]->message);
+    }
+
+    public function testDryRunBuildWritesNoBuildLogEntry(): void
+    {
+        self::assertSame(0, $this->app()->run(['build', '--dry-run']));
+
+        self::assertFileDoesNotExist($this->projectRoot . '/var/log/build.jsonl');
+    }
+
+    public function testABuildThatFailsAfterConfigLoadsRecordsAFailedEntryInTheBuildLog(): void
+    {
+        mkdir($this->projectRoot . '/content/posts/en/2026', 0o755, true);
+        file_put_contents(
+            $this->projectRoot . '/content/posts/en/2026/2026-03-14-broken.md',
+            "---\ntitle: \"Broken\"\n---\nMissing every other required key.",
+        );
+
+        self::assertSame(1, $this->app()->run(['build']));
+
+        $entries = (new BuildLogReader($this->projectRoot . '/var/log/build.jsonl'))->recent();
+        self::assertCount(1, $entries);
+        self::assertSame(BuildOutcome::Failed, $entries[0]->outcome);
+        self::assertNull($entries[0]->releaseDir);
+        self::assertNotNull($entries[0]->message);
+    }
+
+    public function testEachBuildAppendsItsOwnBuildLogEntryRatherThanOverwriting(): void
+    {
+        self::assertSame(0, $this->app()->run(['build']));
+        self::assertSame(0, $this->app()->run(['build']));
+
+        self::assertCount(2, (new BuildLogReader($this->projectRoot . '/var/log/build.jsonl'))->recent());
     }
 
     public function testLegacyUrlsWithNoBaseUrlFailsWithUsage(): void

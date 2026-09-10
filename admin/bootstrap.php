@@ -151,3 +151,32 @@ function admin_csrf_valid(CsrfToken $csrfToken): bool
 {
     return $csrfToken->matches(admin_cookie(AdminCookie::CSRF_NAME), admin_post_field('csrf_token'));
 }
+
+/**
+ * The same top-of-page link bar on every protected screen (T33) — a plain
+ * function rather than a shared HTML partial, matching how every other
+ * admin/*.php page is already a self-contained file with no template layer
+ * of its own (templates/'s partials system is a public-site-only concern,
+ * php-style.md/templates.md). Already-escaped, static content — safe to
+ * echo directly, same as any other bootstrap.php helper's HTML output
+ * (e.g. LineDiffer's callers already do this).
+ */
+function admin_nav_html(): string
+{
+    $links = [
+        '/admin/index.php'     => 'Dashboard',
+        '/admin/documents.php' => 'Documents',
+        '/admin/pages.php'     => 'Pages',
+        '/admin/media.php'     => 'Media',
+        '/admin/taxonomy.php'  => 'Tags &amp; series',
+        '/admin/redirects.php' => 'Redirects',
+        '/admin/build-log.php' => 'Build log',
+    ];
+
+    $parts = [];
+    foreach ($links as $href => $label) {
+        $parts[] = '<a href="' . eAttr($href) . '">' . $label . '</a>';
+    }
+
+    return implode(' &middot; ', $parts);
+}

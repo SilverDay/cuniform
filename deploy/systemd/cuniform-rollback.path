@@ -1,0 +1,20 @@
+# Admin-rollback trigger (T33): the build-log admin screen's "Rollback"
+# button writes var/rollback-requested (Admin\Build\BuildRequestQueue, the
+# same class the regular build queue uses, pointed at a different path —
+# see AdminBootstrap's own comment for why one generic class covers both).
+#
+# PathExists, not PathChanged/PathModified — same reasoning as
+# cuniform-build.path: the admin process only needs to *create* the file,
+# cuniform-rollback.service's own ExecStartPre removes it before each run.
+#
+# Install: symlink into /etc/systemd/system/, `systemctl daemon-reload`,
+# `systemctl enable --now cuniform-rollback.path`.
+[Unit]
+Description=Watch for an enqueued Cuniform rollback request (SPEC section 10.5)
+
+[Path]
+PathExists=/srv/vhosts/blog.silverday.de/var/rollback-requested
+Unit=cuniform-rollback.service
+
+[Install]
+WantedBy=multi-user.target

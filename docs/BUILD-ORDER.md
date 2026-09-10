@@ -511,7 +511,7 @@ that point too (`curl -I https://blog.silverday.de/de/does-not-exist/` should co
 | T30 | [x] | Preview rendering through the identical C3/C4/C5 chain | T29 | §12 |
 | T31 | [x] | Media library with upload validation and re-encoding | T28 | §13.2 |
 | T32 | [x] | Build enqueue via request file, consumed by the systemd unit | T27, T28 | §10.5 |
-| T33 | [ ] | Dashboard, lists, translation-status visibility, build log, rollback, audit log | T29 | §13.3 |
+| T33 | [x] | Dashboard, lists, translation-status visibility, build log, rollback, audit log | T29 | §13.3 |
 
 **T28 note:** BUILD-ORDER lists no explicit acceptance criteria for T28; scope was derived
 directly from §13.1's five bullets (Argon2id, TOTP, recovery codes, sessions, rate limiting),
@@ -905,6 +905,126 @@ it. No repository state was left behind (a temporary, gitignored `config/site.ph
 `releases`/`public`/`var`/`content` at a scratch directory outside the repo; removed after,
 same as T28/T29/T31's own verification). `make check`: 851 tests (up from 838), PHPStan level 8
 clean across `src`, `bin`, `tests`, `admin`, PSR-12 + escaping lint clean.
+
+**T33 note:** BUILD-ORDER lists no explicit acceptance criteria for T33 either; scope was
+derived from §13.3's screens bullet and §13.2's audit-log clause, the same pattern every prior
+task in this milestone already established. One deliberate scope exclusion, named rather than
+silently dropped: §13.3 also lists a "settings" screen, but BUILD-ORDER's own T33 title
+("Dashboard, lists, translation-status visibility, build log, rollback, audit log") omits it,
+and SPEC describes no settings content anywhere — config is a static PHP file the operator
+edits directly (§15.1), so an admin "settings" screen would mean inventing either a read-only
+config dump or a config-file-writing mechanism SPEC never asks for. Left out; revisit if SPEC
+ever says what it should contain. "Editor" and "media library," also listed in §13.3's same
+bullet, are T29/T31's own completed work, not T33's.
+
+**Two foundational pieces this task needed that nothing earlier built:** §15.4's build log
+(`var/log/build.jsonl`, "duration, document count per language, and outcome") and §13.2's audit
+log (`var/log/audit.jsonl`, "actor, action, timestamp, and resulting commit SHA") — the admin
+build-log/dashboard screens need something to read, and nothing before this task had a reason
+to write either. Both follow the same shape: an `*Entry` value object, a `*Writer`
+(append-only JSONL, `is_writable()` checked ahead of the write itself rather than relying on a
+suppressed warning — same precondition-first style `FilesystemGateway::resolve()` and T32's
+`BuildRequestQueue` already established), and a `*Reader` that skips a malformed line rather
+than failing the whole read (same "don't let one bad entry break the listing" rule
+`DocumentIndex::summaries()` already follows).
+
+- `Build\BuildLogWriter` is called from `Cli\Application::build()` — not from `BuildPipeline`
+  itself, which stays a pure build-the-release-tree component — because that's the one place
+  every real trigger (git push's `post-receive`, the admin `.path` unit, the scheduled `.timer`,
+  a manual `bin/cuniform build`) converges on. Only a real, non-`--dry-run` attempt is logged,
+  success or failure (a caught `CuniformException` still gets an entry, with a null
+  `document_count_by_language`/`release_dir` and the exception message) — a dry run changes
+  nothing live, so it has no outcome a "last build status" reading should reflect. `BuildResult`
+  gained `documentCountByLanguage` (computed in `BuildPipeline` from `$site->documents`) since
+  nothing before this needed the aggregate `documentCount` broken out per language.
+  `--rollback` is a separate CLI code path and deliberately writes no build-log entry — it
+  isn't a build (no discover/parse/render, just a symlink swap), so `BuildLogEntry`'s shape
+  doesn't fit it.
+- `Admin\Audit\AuditLogWriter` is called from `EditorDocumentStore`, immediately after each
+  real git commit inside `save()`/`move()` — never from the "nothing actually changed" branch
+  (no commit, nothing to attribute a SHA to, same reasoning T32's build-enqueue skip already
+  uses) and never from `MediaUploader` (uploaded media is never git-committed, SPEC §15.3, so
+  there is no "resulting commit SHA" for it) or login/logout (a different security log,
+  `Auth\RateLimiter`/`SessionStore`'s own job already). `EditorDocumentStore`'s constructor
+  gained one more parameter (`AuditLogWriter`) — the same pattern `BuildRequestQueue` (T32)
+  already added it by.
+
+**Rollback needed the identical privilege-separation treatment as a build, which meant new
+deploy artifacts, not just admin code.** A rollback re-points `public` — exactly the write to
+`releases/`/`public` T32's own acceptance criterion says the admin process must never make
+directly (SPEC §10.5/§15.1). Calling `ReleaseDeployer::rollback()` from `admin/build-log.php`
+in-process would have been exactly the violation `AdminWriteBoundaryTest` (T32) exists to catch
+— so the build-log screen's "Rollback" button enqueues instead, reusing `BuildRequestQueue`
+(already generic — one path in, no other capability) pointed at a second file,
+`var/rollback-requested`, consumed by two new deploy artifacts mirroring T27's own build ones
+exactly: `deploy/systemd/cuniform-rollback.path` (`PathExists`, same reasoning as
+`cuniform-build.path`) and `cuniform-rollback.service` (`ExecStart=... build --rollback`,
+same `User=cuniform-build`/`ReadWritePaths` hardening as `cuniform-build.service`). Both verify
+clean under `systemd-analyze verify`, alongside the three pre-existing units (unaffected —
+`cuniform-build.path`'s own top comment was also refreshed, since it still said "P2 ... not
+built yet" for work T28-T32 have since finished).
+
+**`Admin\Reporting\AdminSiteReport`** is the page-list nav tree / tags-and-series /
+redirects screens' shared engine — it runs the identical stages `BuildPipeline` itself calls
+(`ContentDiscoverer`/`DocumentParser`, `SiteResolver`, `ListingResolver`,
+`RedirectMapCompiler`) rather than a parallel reimplementation, the same reuse principle
+`PreviewRenderer` (T30) already established, stopping right after Resolve/Listing/Redirects —
+no Render, Template, Emit, Verify, or Deploy stage ever runs, so these screens are read-only by
+construction, not just by convention. Because it reuses `SiteResolver::resolve()` unmodified, a
+draft or not-yet-due scheduled document is excluded from every one of these screens exactly as
+a real build would exclude it (SPEC §5.6) — "what's live," not "everything in `content/`." The
+dashboard's draft/untranslated counts need the opposite (every document regardless of status),
+so those read `DocumentIndex` instead, same source `documents.php`/`pages.php`'s own listings
+already use. A corpus-wide error (a route collision, say) surfaces as a caught exception with
+its message shown in place of the screen's content, the same condition that would also block a
+real build — never a partial or silently-wrong nav tree.
+
+**One documented judgment call on what "untranslated-document count" (§13.3) actually
+counts**, since SPEC states the phrase but not its exact boundary: the literal reading —
+"has no translation in any other configured language," true whether a document carries no
+`translation_key` at all (most posts, §7.3) or carries one nothing else currently shares — is
+what's implemented, via a new shared helper, `Admin\Editor\TranslationCoverage::compute()`,
+used identically by the dashboard's count and `documents.php`'s translation-status filter so
+the two numbers can never quietly drift apart. An alternative, narrower reading — count only
+the "forgotten translation" case §12's own prose singles out (a key set, but a sibling
+missing) — was considered and set aside as more presumptuous about operator intent than the
+plain English phrase requires; worth revisiting if the literal count turns out too noisy on a
+real corpus (nearly every untranslated-by-design post would count).
+
+**Screens built:** `admin/index.php` (dashboard — rewritten from T28's placeholder: recent
+documents by mtime, draft count, untranslated count, last build outcome, pending
+build/rollback indicators); `admin/documents.php` (gained `language`/`kind`/`translation`
+GET-filter selects and a Translated column, covering both the "post list" and, via
+`?kind=page`, the flat half of the "page list" bullet); `admin/pages.php` (new — the nav-tree
+half of that same bullet, plus a flat all-pages table); `admin/taxonomy.php` (new — tags and
+series per language, post counts only per SPEC §11.5's "counts are churn... no reader
+benefit," which this project reads as a public-page rule, not an argument against showing a
+count on an internal admin report); `admin/redirects.php` (new — read-only, both alias-derived
+and manual entries, with the root-entry-dropped warning surfaced); `admin/build-log.php` (new
+— entries newest first, the rollback button). A new `admin_nav_html()` helper in
+`bootstrap.php` puts the same seven-link bar on every screen (dashboard/documents/pages/media/
+taxonomy/redirects/build-log) — one function, not a template partial, matching how every
+`admin/*.php` file is already self-contained (templates/'s partial system is public-site-only,
+templates.md).
+
+Verified two ways: unit/integration tests for every new class
+(`AuditLogWriter`/`Reader`Test, `BuildLogReader`Test plus `ApplicationTest`'s new build-log
+cases, `TranslationCoverageTest`, `AdminSiteReportTest` against the same real fixture corpus
+`BuildPipelineTest`/`PreviewRendererTest` use, and new `EditorDocumentStoreTest` cases for the
+audit-log wiring) — 880 tests total (up from 851). Then a full HTTP round trip through PHP's
+built-in server against this checkout's real `admin/`, same style as every prior M5 task: login
+→ TOTP → a real `bin/cuniform build` (writing a genuine `build.jsonl` entry) → the dashboard
+showing 2 documents/0 drafts/2 untranslated and the build outcome; `documents.php?kind=page`
+filtering correctly; `pages.php` showing the real primary-nav tree for the one page with
+`nav_order` set; `taxonomy.php` showing the one real tag with its post count; `redirects.php`
+correctly empty for a corpus with no aliases or `redirects.map`; `build-log.php` listing the
+real entry and, on submit, actually creating `var/rollback-requested` on disk, with the button
+correctly disabled on reload while it's pending. `systemd-analyze verify` passes for all five
+unit files together (the three from T27, the two new ones from this task). No repository state
+was left behind (a temporary, gitignored `config/site.php` pointed `releases`/`public`/`var`/
+`content` at a scratch directory outside the repo; removed after, same as every prior M5
+verification). `make check`: 880 tests, PHPStan level 8 clean across `src`, `bin`, `tests`,
+`admin`, PSR-12 + escaping lint clean.
 
 ---
 

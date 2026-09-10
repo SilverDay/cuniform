@@ -211,3 +211,71 @@ input[type="file"] {
     display: block;
     margin-top: 0.25rem;
 }
+
+/* T33 — dashboard, lists, taxonomy, redirects, build log. */
+
+.admin-nav {
+    margin-bottom: 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.95rem;
+}
+
+.admin-inline-form {
+    display: inline;
+    margin-left: 0.5rem;
+}
+
+.admin-inline-form button {
+    margin-top: 0;
+}
+
+.admin-stat-row {
+    display: flex;
+    gap: 1rem;
+    margin: 1.5rem 0;
+    flex-wrap: wrap;
+}
+
+.admin-stat {
+    padding: 0.75rem 1.25rem;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+    min-width: 8rem;
+}
+
+.admin-stat-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent);
+}
+
+.admin-stat-label {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+}
+
+.admin-filter-form {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-end;
+    flex-wrap: wrap;
+    margin-bottom: 1.5rem;
+}
+
+.admin-filter-form label {
+    margin-top: 0;
+    font-weight: 600;
+    font-size: 0.85rem;
+}
+
+.admin-filter-form select {
+    margin-top: 0.25rem;
+}
+
+.admin-filter-form button {
+    margin-top: 0;
+}

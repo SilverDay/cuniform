@@ -22,6 +22,7 @@ final class DocumentSummary
         public readonly string $slug,
         public readonly DocumentStatus $status,
         public readonly ?string $translationKey,
+        public readonly int $mtime,
     ) {
     }
 }

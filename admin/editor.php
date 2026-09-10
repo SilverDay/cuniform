@@ -119,7 +119,7 @@ header('Content-Type: text/html; charset=UTF-8');
 <body>
 <main class="admin-page">
 <h1><?= e($config->title) ?> — editor</h1>
-<p><a href="/admin/documents.php">&larr; Documents</a></p>
+<nav class="admin-nav"><?= admin_nav_html() ?></nav>
 
 <?php if ($saved): ?>
 <p class="admin-notice">Saved.</p>

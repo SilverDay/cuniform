@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Cuniform\Tests\Admin\Preview;
 
+use Cuniform\Admin\Audit\AuditLogWriter;
 use Cuniform\Admin\Build\BuildRequestQueue;
 use Cuniform\Admin\Editor\EditorDocumentStore;
 use Cuniform\Admin\Editor\EditorSaveRequest;
@@ -52,6 +53,7 @@ final class PreviewRendererTest extends TestCase
             'Europe/Berlin',
             new GitRepository(self::FIXTURE_CONTENT),
             new BuildRequestQueue($this->scratchDir . '/var/build-requested'),
+            new AuditLogWriter($this->scratchDir . '/var/log/audit.jsonl'),
         );
         $this->preview = new PreviewRenderer($this->config(), self::LANG_DIR, $this->store);
     }

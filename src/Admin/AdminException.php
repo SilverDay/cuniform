@@ -78,4 +78,9 @@ final class AdminException extends CuniformException
     {
         return new self("could not enqueue a build (SPEC §10.5): {$path}");
     }
+
+    public static function auditLogWriteFailed(string $path): self
+    {
+        return new self("could not write the audit log (SPEC §13.2): {$path}");
+    }
 }

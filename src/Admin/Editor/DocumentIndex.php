@@ -74,6 +74,7 @@ final class DocumentIndex
                 slug: $frontMatter->shared->slug,
                 status: $frontMatter->shared->status,
                 translationKey: $frontMatter->shared->translationKey,
+                mtime: $discovered->mtime,
             );
         }
 

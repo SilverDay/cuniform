@@ -1,10 +1,10 @@
 # Admin-publish trigger (SPEC §10.5: "Admin writes a request file; a
-# systemd path unit runs the build as the build user"). The admin app
-# itself (P2, T29-33 — not built yet) writes var/build-requested when a
-# publish action needs a rebuild; T32 ("Build enqueue via request file,
-# consumed by the systemd unit") is what makes that write actually happen.
-# This unit is the consuming half, built now so T32 has something defined
-# to write to rather than inventing the convention itself later.
+# systemd path unit runs the build as the build user"). Admin\Build\
+# BuildRequestQueue (T32) writes var/build-requested whenever
+# EditorDocumentStore::save()/move() (T29) produces a published document.
+# This unit is the consuming half, built ahead of T32's own write side so
+# T32 had something defined to write to rather than inventing the
+# convention itself later.
 #
 # PathExists (not PathChanged/PathModified): the admin process only needs
 # to *create* the file — cuniform-build.service's own ExecStartPre removes
