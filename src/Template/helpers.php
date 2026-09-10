@@ -62,3 +62,23 @@ if (!function_exists('eJs')) {
         );
     }
 }
+
+if (!function_exists('partial')) {
+    /**
+     * Resolves a partial template path against the active template resolver
+     * (with template-set and default fallback support).
+     */
+    function partial(string $name): string
+    {
+        $resolver = \Cuniform\Template\TemplateRenderer::currentResolver();
+        if ($resolver !== null) {
+            return $resolver->resolvePartial($name);
+        }
+
+        $normalized = str_starts_with($name, 'partials/')
+            ? substr($name, strlen('partials/'))
+            : $name;
+
+        return __DIR__ . '/../../templates/partials/' . $normalized;
+    }
+}

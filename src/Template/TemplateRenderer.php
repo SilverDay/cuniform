@@ -15,10 +15,26 @@ use Cuniform\Render\RenderException;
  */
 final class TemplateRenderer
 {
+    private static ?TemplateResolver $currentResolver = null;
+
+    public function __construct(private readonly ?TemplateResolver $resolver = null)
+    {
+    }
+
+    public static function currentResolver(): ?TemplateResolver
+    {
+        return self::$currentResolver;
+    }
+
     public function render(string $templatePath, object $context): string
     {
         if (!is_file($templatePath)) {
             throw RenderException::templateNotFound($templatePath);
+        }
+
+        $previousResolver = self::$currentResolver;
+        if ($this->resolver !== null) {
+            self::$currentResolver = $this->resolver;
         }
 
         ob_start();
@@ -31,6 +47,8 @@ final class TemplateRenderer
             ob_end_clean();
 
             throw $e;
+        } finally {
+            self::$currentResolver = $previousResolver;
         }
 
         return (string) ob_get_clean();

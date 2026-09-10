@@ -4,23 +4,29 @@ Task list for implementation. `docs/SPEC.md` is authoritative; the "Spec" column
 into it, not a substitute. Work one task at a time. A task is done only when every acceptance
 criterion passes and `make check` is clean.
 
+This repository contains working implementations for many later tasks in M4/M5/M6; the status
+markers in this file remain the project’s acceptance-gate, not a statement that the code is
+absent. In particular, local implementation + tests are separate from live-host operational
+verification (for example, T27’s ACME renewal and runtime deployment checks against a real DNS/
+Apache host).
+
 Mark completion by changing `[ ]` to `[x]` in the Status column, in the same commit as the work.
 
 ---
 
 ## M1 — Core render chain
 
-| # | Status | Task | Deps | Spec |
-|---|--------|------|------|------|
-| T1 | [x] | Project skeleton: `src/` PSR-4 autoloader (hand-rolled, no Composer runtime), `bin/cuniform` entry point, Makefile, PHPUnit + PHPStan config | — | §3.5, NFR-6 |
-| T2 | [x] | Config loader and validator: `config/site.php`, language set, `url_prefix` validation, permalink pattern | T1 | §7.1, §8.1 |
-| T3 | [x] | Filesystem gateway with `realpath()` containment, extension allow-list, size cap | T1 | §4.6 |
-| T4 | [x] | Front matter parser: restricted YAML subset, typed result object, error collection | T3 | §5.2, §5.5 |
-| T5 | [x] | Slugifier: UTF-8, German transliteration, collision suffixes, verbatim passthrough | T1 | §5.4 |
-| T6 | [x] | Renderer fork: import `Md2Html.php` into `src/Render/`, namespace it, write `CHANGELOG-FORK.md`, port the known bug fixes and the fork features of §4.3 | T1 | §4.1, §4.2, §4.3 |
-| T7 | [x] | Render adapter: front matter strip, guards | T4, T5, T6 | §4.6 |
-| T8 | [x] | Shortcode layer: code masking, placeholder tokens, pre/post passes, handler interface | T7 | §4.5 |
-| T9 | [x] | Shortcode handlers: figure, video, embed, details, note, toc, include | T8 | §4.5, §6.5 |
+| #   | Status | Task                                                                                                                                                    | Deps       | Spec             |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | ---------------- |
+| T1  | [x]    | Project skeleton: `src/` PSR-4 autoloader (hand-rolled, no Composer runtime), `bin/cuniform` entry point, Makefile, PHPUnit + PHPStan config            | —          | §3.5, NFR-6      |
+| T2  | [x]    | Config loader and validator: `config/site.php`, language set, `url_prefix` validation, permalink pattern                                                | T1         | §7.1, §8.1       |
+| T3  | [x]    | Filesystem gateway with `realpath()` containment, extension allow-list, size cap                                                                        | T1         | §4.6             |
+| T4  | [x]    | Front matter parser: restricted YAML subset, typed result object, error collection                                                                      | T3         | §5.2, §5.5       |
+| T5  | [x]    | Slugifier: UTF-8, German transliteration, collision suffixes, verbatim passthrough                                                                      | T1         | §5.4             |
+| T6  | [x]    | Renderer fork: import `Md2Html.php` into `src/Render/`, namespace it, write `CHANGELOG-FORK.md`, port the known bug fixes and the fork features of §4.3 | T1         | §4.1, §4.2, §4.3 |
+| T7  | [x]    | Render adapter: front matter strip, guards                                                                                                              | T4, T5, T6 | §4.6             |
+| T8  | [x]    | Shortcode layer: code masking, placeholder tokens, pre/post passes, handler interface                                                                   | T7         | §4.5             |
+| T9  | [x]    | Shortcode handlers: figure, video, embed, details, note, toc, include                                                                                   | T8         | §4.5, §6.5       |
 
 **T1 acceptance:** `make check` runs and passes on an empty project. No Composer package is
 required at runtime — deleting `vendor/` leaves `bin/cuniform` working.
@@ -72,14 +78,14 @@ and include cycles are build errors.
 
 ## M2 — Languages
 
-| # | Status | Task | Deps | Spec |
-|---|--------|------|------|------|
-| T10 | [x] | Language resolver: derive language from tree, validate against config, reject unknown dirs | T2, T4 | §7.2 |
-| T11 | [x] | Translation grouping by `translation_key`, duplicate detection | T10 | §7.3 |
-| T12 | [x] | Route builder: `{L}` substitution for all three `url_prefix` modes, reserved slugs, namespace collision detection | T2, T5, T10 | §7.4, §8.1, §8.2 |
-| T13 | [x] | UI string catalogue and `t()`, missing-key detection | T2 | §7.8 |
-| T14 | [x] | hreflang set construction, `x-default`, self-reference, published-only filtering | T11, T12 | §7.5 |
-| T15 | [x] | Date/number formatting via `IntlDateFormatter` with documented fallback | T13 | §7.9 |
+| #   | Status | Task                                                                                                              | Deps        | Spec             |
+| --- | ------ | ----------------------------------------------------------------------------------------------------------------- | ----------- | ---------------- |
+| T10 | [x]    | Language resolver: derive language from tree, validate against config, reject unknown dirs                        | T2, T4      | §7.2             |
+| T11 | [x]    | Translation grouping by `translation_key`, duplicate detection                                                    | T10         | §7.3             |
+| T12 | [x]    | Route builder: `{L}` substitution for all three `url_prefix` modes, reserved slugs, namespace collision detection | T2, T5, T10 | §7.4, §8.1, §8.2 |
+| T13 | [x]    | UI string catalogue and `t()`, missing-key detection                                                              | T2          | §7.8             |
+| T14 | [x]    | hreflang set construction, `x-default`, self-reference, published-only filtering                                  | T11, T12    | §7.5             |
+| T15 | [x]    | Date/number formatting via `IntlDateFormatter` with documented fallback                                           | T13         | §7.9             |
 
 **T10 acceptance:** a document's language is read from its path, never from front matter (no
 `lang` key exists to read — SPEC §5.2). A `posts/` or `pages/` subdirectory whose name is not
@@ -109,17 +115,17 @@ than `strftime()` or system locale data (§7.9).
 
 ## M3 — Templates and build
 
-| # | Status | Task | Deps | Spec |
-|---|--------|------|------|------|
-| T16 | [x] | ViewModel objects and escaping helpers `e`/`eAttr`/`eUrl`/`eJs`; escaping lint in `make lint` | T7 | §9 |
-| T17 | [x] | Template set: layout, post, page, index, tag, series, archive, search, 404, feed | T14, T16 | §9 |
-| T18 | [x] | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap | T12 | §6.2, §6.3 |
-| T19 | [x] | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template | T17, T18 | §10.1 |
-| T20 | [x] | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19 | §11 |
-| T21 | [x] | Redirect map compilation and the hand-written feed redirect entry | T12 | §7.11, §8.3 |
-| T22 | [x] | Build verification (§10.3), including the URL-scheme-change guard | T20, T21 | §10.3 |
-| T23 | [x] | Atomic deploy, release pruning, `--rollback` | T22 | §10.4 |
-| T24 | [x] | Incremental build cache and invalidation, including translation-group invalidation | T19 | §10.2 |
+| #   | Status | Task                                                                                                                                        | Deps     | Spec        |
+| --- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ----------- |
+| T16 | [x]    | ViewModel objects and escaping helpers `e`/`eAttr`/`eUrl`/`eJs`; escaping lint in `make lint`                                               | T7       | §9          |
+| T17 | [x]    | Template set: layout, post, page, index, tag, series, archive, search, 404, feed                                                            | T14, T16 | §9          |
+| T18 | [x]    | Page hierarchy and nav trees per language, `nav_*` handling, three-level cap                                                                | T12      | §6.2, §6.3  |
+| T19 | [x]    | Build pipeline stages 1–6: lock, discover, parse, resolve, render, template                                                                 | T17, T18 | §10.1       |
+| T20 | [x]    | Artifacts: per-language feeds, sitemap with alternates, search index with threshold warning, robots.txt, security.txt, asset fingerprinting | T19      | §11         |
+| T21 | [x]    | Redirect map compilation and the hand-written feed redirect entry                                                                           | T12      | §7.11, §8.3 |
+| T22 | [x]    | Build verification (§10.3), including the URL-scheme-change guard                                                                           | T20, T21 | §10.3       |
+| T23 | [x]    | Atomic deploy, release pruning, `--rollback`                                                                                                | T22      | §10.4       |
+| T24 | [x]    | Incremental build cache and invalidation, including translation-group invalidation                                                          | T19      | §10.2       |
 
 **T16 acceptance:** `e`/`eAttr`/`eUrl`/`eJs` are the only four names `make lint`'s
 escaping-lint accepts after a bare `<?=` (plus `t`, already true from T13's design). `eUrl`
@@ -141,7 +147,7 @@ route must resolve even for a brand-new site with zero posts (§7.4.1).
 `feed.xml.php` is deliberately absent from the allow-list: `FeedGenerator` (T20) already
 builds RSS 2.0 and Atom directly with `DOMDocument`, so no PHP template ever renders a feed —
 see `BuildPipeline`'s and `TemplateResolver`'s own docblocks. `SitemapGenerator` (T20) now
-also emits each listing type's *first* page — `/{L}`, each tag archive, each series index,
+also emits each listing type's _first_ page — `/{L}`, each tag archive, each series index,
 each year archive — since SPEC §11.2's "excludes ... pagination beyond page 1" only makes
 sense once something has pagination beyond page 1; the search page and 404s are excluded, not
 being content a search engine should index. `AssetFingerprinter` (T20) is generalized to
@@ -161,7 +167,7 @@ a single `<html lang>`, and this page deliberately carries every configured lang
 blurb and home link, each in its own `lang` attribute (NFR-4). It's rendered by a small
 template of its own, `404-root.php` (via `NeutralErrorContext`, not a `ViewModel`), and is
 **always** generated regardless of `url_prefix` — SPEC §3.2's vhost skeleton declares
-`ErrorDocument 404 /404.html` unconditionally, only *adding* the per-language
+`ErrorDocument 404 /404.html` unconditionally, only _adding_ the per-language
 `<Location>` overrides when prefixed, so the neutral page's own necessity doesn't depend on
 how many languages are configured. The per-language `/{L}404.html` is generated only when that
 language is actually prefixed (`RouteBuilder::prefixFor($language) !== ''`), matching §7.12's
@@ -202,14 +208,14 @@ error aborts the build with no output written.
 
 **T19 scope note (as of this task; T17/T22/T23 later filled every gap named below):** stages
 1-6 run for real, including from `bin/cuniform build` — both plain and `--dry-run` — but only
-produce the routes T17's *then*-current template set could render (posts and pages; T17's
+produce the routes T17's _then_-current template set could render (posts and pages; T17's
 remaining templates were still unbuilt at this point, so no index/tag/series/archive/search/404
 route was generated yet — T17 later closed this). Deliberately not built in the Resolve stage,
 matching this project's "don't build ahead of a consumer" convention (see `ResolvedSite`'s
 docblock): tag/series indexes and prev/next (nothing rendered them until T17 finished and T20
 existed — T17 ultimately built this as `ListingResolver`, kept separate from `ResolvedSite`
 rather than added to it; see T17's own note), and compiling `aliases` into `redirects.map`
-(that was T21's own task — the `aliases`-collides-with-a-route *validation* SPEC §5.5 requires
+(that was T21's own task — the `aliases`-collides-with-a-route _validation_ SPEC §5.5 requires
 was still enforced at this point, since it didn't need the map itself). A plain
 (non-`--dry-run`) build writes a complete release tree under `releases/<timestamp>/` but at
 this point never touched `public/` — Verify/Deploy were T22-T23, so `--rollback` still reported
@@ -257,14 +263,14 @@ asymmetry, `HreflangSymmetryChecker`/T14; missing UI string key, `UiStringCatalo
 re-implemented, only confirmed each still has a firing test. This task built the rest: well-
 formedness, internal-link/media resolution, the page-count-drop guard, the URL-scheme-change
 guard, and redirect-target resolution — all in `BuildVerifier`, run as stage 8 whether or not
-`--dry-run` was given (a dry run's whole point is telling you whether a real build *would*
+`--dry-run` was given (a dry run's whole point is telling you whether a real build _would_
 succeed).
 
 Two things had to be built to make verification meaningful rather than vacuous, neither owned
 by an earlier task: `MediaCopier` actually copies `content/media/` into the release (SPEC §7.10
 lists it as a shared artifact, but nothing before this ever wrote it — without it, "any
 referenced media file is missing" had nothing to check against) and `WellFormednessChecker`
-does *not* use `DOMDocument`'s HTML parser directly, because that parser silently repairs
+does _not_ use `DOMDocument`'s HTML parser directly, because that parser silently repairs
 almost anything short of a null byte and would never actually fire; it self-closes void
 elements and expands bare boolean attributes (`<video controls>` → `controls="controls"` —
 valid HTML5, invalid XML, and something `VideoHandler` genuinely emits) before parsing as
@@ -301,7 +307,7 @@ One case handled deliberately rather than left to fail with a raw filesystem err
 existing as an empty real directory (true of every fixture in this test suite before its first
 deploy, and — per SPEC §10.4's "one-time setup" — of a fresh checkout before its first real
 deploy too) is silently replaced with the symlink, since there's nothing in it to lose. A
-*non-empty* real directory is refused with a message pointing at §10.4/§3.3/§15.5 rather than
+_non-empty_ real directory is refused with a message pointing at §10.4/§3.3/§15.5 rather than
 deleted — moving real content out is the cutover-freeze decision T27 (`one-time public symlink
 setup`) actually owns, not something to do unasked at deploy time (this project's own "risky
 action" convention: don't delete what you didn't create without being asked).
@@ -312,7 +318,7 @@ always the newest one and always inside the retained window by construction — 
 also special-cased "never prune whatever `public/` currently points at" for a rollback's sake,
 but that branch could never fire (prune always observes the release it just swapped to, not
 whatever was live a moment before) and was removed rather than kept as inert defensive code.
-`rollback()` itself never prunes, so a rollback can still reach a release a *later* deploy will
+`rollback()` itself never prunes, so a rollback can still reach a release a _later_ deploy will
 go on to prune — `ReleaseDeployerTest::testRollbackNeverPrunesAndCanReachAReleaseOutsideTheRetainWindow`
 covers exactly that ordering.
 
@@ -340,14 +346,14 @@ listing route from freshly-parsed front matter every build (cheap — cards use 
 summary/date/tags, never the rendered body), so a changed post's appearance there is always
 right regardless of whether its own Render/Template step was skipped. Verify (stage 8) also
 always runs against the complete page set, cached pages included — a cached page's own bytes
-being unchanged says nothing about whether something it links to still exists in *this*
+being unchanged says nothing about whether something it links to still exists in _this_
 release, so it isn't exempted.
 
 `BuildCacheKey` computes SPEC §10.2's formula (`SHA-256(file) + SHA-256(templates) +
 SHA-256(UI strings) + engine version + SHA-256(Md2Html.php)`) with the last four folded into
 one `$globalSuffix` shared by every document's key — which is also what makes "a changed
 template, UI string file, [or renderer] invalidates everything" fall out for free: change any
-of them and *every* document's key differs, no separate rule needed. `EngineVersion::VERSION`
+of them and _every_ document's key differs, no separate rule needed. `EngineVersion::VERSION`
 is a new small constant for the "engine version" component; `Md2Html.php`'s own path is found
 via `ReflectionClass` rather than threading another constructor parameter through, since it's
 always exactly wherever the autoloader put it. Also folded into `$globalSuffix`, beyond SPEC's
@@ -355,7 +361,7 @@ literal formula: the parts of `Config` that are embedded directly into every cac
 `<head>` or route (`base_url`, `title`, `languages`, `default_language`, `url_prefix`,
 `permalink`) — otherwise a config edit could produce stale cached output with nothing to catch
 it. `templates/` is hashed as a whole directory tree, not just `.php` files — `style.css` and
-`search.js` live there too, and a cached page's `<head>` embeds their *fingerprinted* URL, which
+`search.js` live there too, and a cached page's `<head>` embeds their _fingerprinted_ URL, which
 changes whenever their contents do; missing that would leave cached pages linking a stylesheet
 filename that no longer exists in the new release.
 
@@ -370,11 +376,11 @@ to be.
 Translation-group propagation (SPEC §10.2: "every page in its translation group [changes,
 since] its hreflang set changed") is the one rule that genuinely can't be derived from a
 per-document key comparison — a document's own key can be unchanged while its hreflang
-alternates list is stale, because a *sibling* was edited, added, or removed.
+alternates list is stale, because a _sibling_ was edited, added, or removed.
 `IncrementalPlanner` handles all three: for every `translation_key` seen in either this
 build's documents or the previous manifest's cached entries, if the member set changed (a
 sibling appeared or disappeared) or any current member is already directly dirty, every
-*current* member of that group is marked dirty too — including one whose own content is
+_current_ member of that group is marked dirty too — including one whose own content is
 completely unchanged. This is deliberately coarse (SPEC's own "any ambiguity resolves toward a
 full rebuild"): it doesn't check whether the actual change would affect the sibling's rendered
 hreflang output, just whether anything in the group moved.
@@ -383,7 +389,7 @@ One dependency this task does **not** track, documented prominently in `Incremen
 own docblock rather than left to be discovered as a bug: `[include]` (SPEC §6.5). A page
 reached only via `[include]`, not edited directly itself, does not propagate to documents that
 include it — `DocumentRenderer`'s `IncludeResolvingPageRepository` resolves include targets
-independently and always fresh regardless of this cache, but the *including* document's own
+independently and always fresh regardless of this cache, but the _including_ document's own
 top-level render can still be served from cache even though the page it includes changed.
 `--full` (now actually doing something — previously accepted and ignored) is the workaround;
 closing this gap for real would mean `RenderedDocument` reporting which pages it included,
@@ -393,17 +399,17 @@ which is a reasonable follow-up but out of this task's scope.
 
 ## M4 — Cutover
 
-| # | Status | Task | Deps | Spec |
-|---|--------|------|------|------|
-| T25 | [x] | Legacy URL enumeration tooling: crawl the existing site, emit a URL inventory | — | §15.5, §19 item 5 |
-| T26 | [n/a] | ~~Legacy snapshot support: carry a frozen static tree through builds without collision~~ | T23, T25 | §15.5 |
-| T27 | [ ] | Apache vhost config, systemd units (build consumer, scheduled-post timer), one-time `public` symlink setup | T23 | §3.2, §10.5, §15.1 |
+| #   | Status | Task                                                                                                       | Deps     | Spec               |
+| --- | ------ | ---------------------------------------------------------------------------------------------------------- | -------- | ------------------ |
+| T25 | [x]    | Legacy URL enumeration tooling: crawl the existing site, emit a URL inventory                              | —        | §15.5, §19 item 5  |
+| T26 | [n/a]  | ~~Legacy snapshot support: carry a frozen static tree through builds without collision~~                   | T23, T25 | §15.5              |
+| T27 | [ ]    | Apache vhost config, systemd units (build consumer, scheduled-post timer), one-time `public` symlink setup | T23      | §3.2, §10.5, §15.1 |
 
 **T25 note:** BUILD-ORDER lists no explicit acceptance criteria for T25; scope was derived
 directly from §15.5 and §19 item 5, whose own text already draws the boundary: "the complete
 list of live URLs... a crawl of the existing sitemap is the practical source; if the current
 site has no sitemap, a `wget --spider --recursive` run produces one." That's enumeration —
-*which paths exist* — not §15.5's separate `wget --mirror` (T26's job: downloading full pages
+_which paths exist_ — not §15.5's separate `wget --mirror` (T26's job: downloading full pages
 for the frozen-snapshot option). `bin/cuniform legacy-urls <base-url> [--output=<path>]
 [--max-pages=<n>]` is a new, standalone CLI command (`src/Cutover/`, a new namespace for M4's
 tooling) — it never runs as part of `bin/cuniform build` and has nothing to do with the build
@@ -425,7 +431,7 @@ fully unit-tested against a fake fetcher with zero real network access
 (php-style.md: "No network ... in tests"); `StreamHttpFetcher`, the one class that actually
 opens a socket, is intentionally thin and untested directly, with its one non-trivial piece
 (parsing `$http_response_header`'s possibly-multi-hop shape after a followed redirect) pulled
-out into `HttpResponseHeaderParser`, a pure function that *is* tested. robots.txt handling
+out into `HttpResponseHeaderParser`, a pure function that _is_ tested. robots.txt handling
 (`RobotsTxt`) is a courtesy, not a SPEC requirement — a deliberately simplified, best-effort
 reader (no wildcards, no per-record multi-agent grouping), documented as such in its own
 docblock; a missing or unparseable robots.txt is always treated as allow-all, never a crawl
@@ -434,7 +440,7 @@ failure.
 **T26 status — not applicable, resolved 2026-09-09 (SPEC §15.5, §19 item 4).** The operator
 took the live site down before this task could be started, and confirmed a WordPress XML
 export (WXR) exists instead of a live site to crawl/mirror. Freeze-and-serve — the cutover
-option this task exists to support — needs a *live* site (`wget --mirror` against something
+option this task exists to support — needs a _live_ site (`wget --mirror` against something
 still serving), which is no longer possible; there is nothing left to snapshot. The operator's
 chosen replacement is to pull the P3 import (M6, Appendix A) forward instead — see M6's own
 reprioritization note below and SPEC §15.5's resolution note for the full reasoning. `[n/a]`
@@ -465,11 +471,11 @@ left `[ ]` on purpose.** Every artifact SPEC §3.2/§10.5/§15.1 call for is bui
 - `deploy/git/post-receive` — the git-push trigger (§10.5, and §12's "sole authoring path in
   P1"). Relies on `receive.denyCurrentBranch updateInstead` (documented in the hook's own
   header) rather than the hook doing its own `git checkout -f`, specifically so this composes
-  cleanly with P2's admin app later committing to the *same* working tree directly (§12 Path
+  cleanly with P2's admin app later committing to the _same_ working tree directly (§12 Path
   B) instead of needing two reconciled checkouts.
 - `bin/cuniform setup-public` (`PublicDirectorySetup`, tested) — the one-time `public/`
   provisioning step (§10.4, §3.3): an empty real directory is removed (the next build creates
-  the symlink); a non-empty one is *moved aside*, never deleted, since deciding what happens to
+  the symlink); a non-empty one is _moved aside_, never deleted, since deciding what happens to
   real content there is the still-open §15.5 cutover decision, not something this tool should
   guess. Confirmed directly relevant: this checkout's own `public/` is right now exactly that
   case — a real, non-empty, differently-owned directory from hosting provisioning — left
@@ -504,14 +510,14 @@ that point too (`curl -I https://blog.silverday.de/de/does-not-exist/` should co
 
 ## M5 — Admin
 
-| # | Status | Task | Deps | Spec |
-|---|--------|------|------|------|
-| T28 | [x] | Auth: Argon2id, TOTP, recovery codes, sessions, rate limiting | T23 | §13.1 |
-| T29 | [x] | Editor with front matter form, SHA-256 conflict detection, git commit via `proc_open` | T28 | §12 |
-| T30 | [x] | Preview rendering through the identical C3/C4/C5 chain | T29 | §12 |
-| T31 | [x] | Media library with upload validation and re-encoding | T28 | §13.2 |
-| T32 | [x] | Build enqueue via request file, consumed by the systemd unit | T27, T28 | §10.5 |
-| T33 | [x] | Dashboard, lists, translation-status visibility, build log, rollback, audit log | T29 | §13.3 |
+| #   | Status | Task                                                                                  | Deps     | Spec  |
+| --- | ------ | ------------------------------------------------------------------------------------- | -------- | ----- |
+| T28 | [x]    | Auth: Argon2id, TOTP, recovery codes, sessions, rate limiting                         | T23      | §13.1 |
+| T29 | [x]    | Editor with front matter form, SHA-256 conflict detection, git commit via `proc_open` | T28      | §12   |
+| T30 | [x]    | Preview rendering through the identical C3/C4/C5 chain                                | T29      | §12   |
+| T31 | [x]    | Media library with upload validation and re-encoding                                  | T28      | §13.2 |
+| T32 | [x]    | Build enqueue via request file, consumed by the systemd unit                          | T27, T28 | §10.5 |
+| T33 | [x]    | Dashboard, lists, translation-status visibility, build log, rollback, audit log       | T29      | §13.3 |
 
 **T28 note:** BUILD-ORDER lists no explicit acceptance criteria for T28; scope was derived
 directly from §13.1's five bullets (Argon2id, TOTP, recovery codes, sessions, rate limiting),
@@ -618,10 +624,10 @@ its rules.** `EditorDocumentStore::save()`/`move()` build a front matter block w
 `FrontMatterEmitter` and immediately re-parse it with `FrontMatterParser` — the same class T4
 built and every build-blocking condition in §5.5 is already tested against. An invalid slug,
 a missing required key, `image` without `image_alt`, an out-of-range `nav_group`/`legal`/
-`status` value all surface as the *authoritative* error message, not a second, differently-
+`status` value all surface as the _authoritative_ error message, not a second, differently-
 worded one invented in the editor. `FrontMatterParser::SLUG_PATTERN`/`ISO8601_PATTERN` were
 made `public const` (previously `private`) so the store's own pre-flight path derivation for a
-*new* document — it has to guess a filename before it can even call the parser — can reuse
+_new_ document — it has to guess a filename before it can even call the parser — can reuse
 them instead of drifting a second copy.
 
 **Conflict handling, and "invalid," are outcomes, not exceptions.** `EditorSaveOutcome`/
@@ -629,8 +635,8 @@ them instead of drifting a second copy.
 stale SHA-256 or invalid front matter are expected, form-submission-shaped results the editor
 page re-renders inline, not failures that should look like a 500 — and `AdminException` is
 `final`, so a data-carrying subclass for "conflict" was never actually an option. On conflict,
-`EditorSaveOutcome` carries both the freshly-reloaded `EditorDocument` and the *exact on-disk
-bytes* (`currentRaw`) — the typed document alone would only let the editor page reconstruct an
+`EditorSaveOutcome` carries both the freshly-reloaded `EditorDocument` and the _exact on-disk
+bytes_ (`currentRaw`) — the typed document alone would only let the editor page reconstruct an
 approximation of what's actually on disk. `LineDiffer` (a small classic LCS diff — no runtime
 dependency exists for this, CLAUDE.md) renders that against what the operator was about to
 write; above 2000 lines on either side it falls back to a coarse "all removed, all added" diff
@@ -641,7 +647,7 @@ rather than building an O(n·m) table for a synchronous admin request.
 never joins a request value onto the content root and trusts it — it looks the identifier up
 against the actual set of files `ContentDiscoverer` (T19) finds, and `AdminException::
 documentNotFound()` otherwise. `DocumentIndex::summaries()` (the richer, parsed listing
-`admin/documents.php` renders) deliberately does *not* fail the whole listing over one
+`admin/documents.php` renders) deliberately does _not_ fail the whole listing over one
 document's invalid front matter, unlike the build pipeline's own "collect everything, then
 fail" (§5.5) — a single broken file elsewhere in the tree would otherwise make the entire editor
 unusable, including for fixing the very file that's broken. It's skipped from the listing and
@@ -664,7 +670,7 @@ walks upward from wherever it's invoked to find the repository root on its own, 
 codebase already is — resolves correctly without needing a `content/` prefix stitched onto it.
 
 **A move is a delete-and-add in one commit, not two.** `EditorDocumentStore::move()` writes
-the new file, `unlink()`s the old one, then calls `GitRepository::addAndCommit()` with *both*
+the new file, `unlink()`s the old one, then calls `GitRepository::addAndCommit()` with _both_
 paths — `git add -A -- old new` stages the deletion and the addition together, which git's own
 history view recognises as a rename, without shelling out to a second `git mv` command. A move
 always requires a fresh slug (§5.4: "Slugs are per-language by design") — there's no sense in
@@ -674,7 +680,7 @@ explicitly rather than reusing the old value.
 **Three deliberate scope reductions**, each documented in code rather than silently decided:
 
 1. **New-page creation is flat** (`pages/<language>/<slug>.md`) — §6.3's directory hierarchy
-   isn't built for *creating* a new nested page. Editing an existing nested page works fine
+   isn't built for _creating_ a new nested page. Editing an existing nested page works fine
    (load/save operate on its already-known identifier, wherever it sits), same shape as T37's
    own "posts only, this pass."
 2. **The media picker isn't built here** — SPEC §12 names it in the same breath as the front
@@ -684,8 +690,8 @@ explicitly rather than reusing the old value.
    the UI pointing at T31.
 3. **The shortcode inserter is a static reference, not a click-to-insert control.** Inserting
    a snippet at the textarea's cursor position needs JavaScript, and admin pages currently ship
-   *zero* script, inline or external (`script-src 'none'`, T28) — deliberately, since SPEC
-   §14.1's CSP reasoning for the *public* site doesn't even apply to admin (its responses are
+   _zero_ script, inline or external (`script-src 'none'`, T28) — deliberately, since SPEC
+   §14.1's CSP reasoning for the _public_ site doesn't even apply to admin (its responses are
    dynamic, so a nonce would work), but T28 chose the simpler "no script at all" for every
    admin page rather than opening that door for one feature. Revisiting this is a CSP decision,
    not something to do silently inside this task.
@@ -767,8 +773,8 @@ unknown identifier both come back as `PreviewResult::invalid()` rather than thro
 `admin`, PSR-12 + escaping lint clean.
 
 **T31 note:** BUILD-ORDER lists no explicit acceptance criteria for T31 either; scope was
-derived directly from §13.2's own clause ("media upload validated on extension *and* content
-type *and* magic bytes, re-encoded through GD/Imagick to strip EXIF and any embedded payload,
+derived directly from §13.2's own clause ("media upload validated on extension _and_ content
+type _and_ magic bytes, re-encoded through GD/Imagick to strip EXIF and any embedded payload,
 stored under a randomized name") and §13.3's "media library" screen, the same pattern
 T20/T21/T25/T28/T29/T30 already established. New namespace `Cuniform\Admin\Media\` in
 `src/Admin/`, plus `admin/media.php` (upload form + listing, wired the same way
@@ -779,7 +785,7 @@ T20/T21/T25/T28/T29/T30 already established. New namespace `Cuniform\Admin\Media
 original filename's extension, the browser-reported content type, and the file's own magic
 bytes (`MediaMagicBytes`, hand-rolled rather than ext-exif's `exif_imagetype()` — see its own
 docblock — so this adds no dependency beyond GD, which re-encoding already requires) — and
-requires all three to name the *same* format before anything is decoded. SPEC lists these as
+requires all three to name the _same_ format before anything is decoded. SPEC lists these as
 three checks to perform, not a priority order to fall back through, so a `.png` that is
 actually a JPEG, or a browser lying about content type, is refused outright with a specific
 error rather than resolved by trusting whichever signal looks most authoritative.
@@ -1035,7 +1041,7 @@ next, ahead of the remaining M5 tasks (T28-33), not after them as originally ord
 live site is down and the freeze-and-serve cutover option it needed is gone with it; the
 operator chose to build the WordPress import now instead, using the WXR export already in
 hand, rather than accept an indefinite 404 gap or wait on a staging cutover. This changes task
-*build order* only — SPEC §1.1 still says P3 ships once P1+P2 are stable, so whether the
+_build order_ only — SPEC §1.1 still says P3 ships once P1+P2 are stable, so whether the
 imported content actually goes live before or after M5 (Admin) is a separate, later decision;
 see SPEC's own §15.5 resolution note for the distinction spelled out in full.
 
@@ -1046,14 +1052,14 @@ M5, not a real technical dependency, and that reading no longer holds now that M
 built first. T35-39's internal chain (each depending on the previous M6 task) was already
 correct and needs no change.
 
-| # | Status | Task | Deps | Spec |
-|---|--------|------|------|------|
-| T34 | [x] | WXR streaming parser with external entities disabled | — | §A.1 |
-| T35 | [x] | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34 | §A.3 |
-| T36 | [ ] | Media downloader with host allow-list and checksums | T34 | §A.3 |
-| T37 | [x] | Front matter emission, verbatim slugs, redirect generation for every document | T35 | §A.3 |
-| T38 | [x] | Verification: count reconciliation, URL diff, word-count tolerance, migration report | T37 | §A.4 |
-| T39 | [x] | Manual review tracking file and checklist workflow | T38 | §A.5 |
+| #   | Status | Task                                                                                                   | Deps | Spec |
+| --- | ------ | ------------------------------------------------------------------------------------------------------ | ---- | ---- |
+| T34 | [x]    | WXR streaming parser with external entities disabled                                                   | —    | §A.1 |
+| T35 | [x]    | HTML→Markdown converter constrained to supported constructs; unknown shortcodes preserved and reported | T34  | §A.3 |
+| T36 | [ ]    | Media downloader with host allow-list and checksums                                                    | T34  | §A.3 |
+| T37 | [x]    | Front matter emission, verbatim slugs, redirect generation for every document                          | T35  | §A.3 |
+| T38 | [x]    | Verification: count reconciliation, URL diff, word-count tolerance, migration report                   | T37  | §A.4 |
+| T39 | [x]    | Manual review tracking file and checklist workflow                                                     | T38  | §A.5 |
 
 **T34 note:** SPEC §A.2's own pre-work checklist was run against the operator's real export
 before writing any code (`~/export/blog-export.xml`, 6 items, ~60 KB — not committed, see
@@ -1075,7 +1081,7 @@ below) rather than guessed at:
   from — worth knowing before T37 decides which language tree an imported document lands in,
   since `en` is also already `default_language` (§19 item 2).
 - Also noted, not part of §A.2's checklist but relevant to T35/T36 later: zero `wp-content/
-  uploads` references and zero `<img>` tags anywhere in this export — T36 (media downloader)
+uploads` references and zero `<img>` tags anywhere in this export — T36 (media downloader)
   has nothing to fetch for this particular corpus, though it should still be built generically
   since a real host's images not making it into this specific 6-item export doesn't mean the
   Appendix A pipeline can skip media handling as a capability.
@@ -1095,12 +1101,12 @@ access (`wp:`/`content:`/`excerpt:`/`dc:`); this only works because `readOuterXM
 re-serializes every namespace declaration a subtree needs onto the element itself, confirmed
 with a throwaway script against the real export before committing to the design, not assumed.
 External entity loading is disabled via `LIBXML_NONET` — explicit intent, not reliance on the
-fact that modern libxml2 already disables external entity *substitution* by default (verified
+fact that modern libxml2 already disables external entity _substitution_ by default (verified
 both ways with a crafted XXE payload; `WxrReaderTest::testExternalEntityIsNotExpanded` keeps
 that verification as a regression test). A malformed item is **not** caught and skipped
 independently of the rest, unlike `DocumentParser`'s per-document error collection (SPEC
 §5.5) — confirmed empirically that `XMLReader::read()` itself fails at the very first
-well-formedness problem in the *whole* document, however far into it, since a streaming reader
+well-formedness problem in the _whole_ document, however far into it, since a streaming reader
 tokenizes forward from the start; there's no such thing as "one bad item, N-1 good ones" here.
 An early draft had a per-item try/catch modeled on `DocumentParser`'s pattern anyway — removed
 once the empirical test showed it could never actually catch anything, the same lesson T23's
@@ -1149,12 +1155,12 @@ ad hoc real-corpus check rather than trusting the design once it looked right:
    newlines"), and needed the same fix at this layer: `convertBlockChildren()` now buffers
    consecutive non-block children (text nodes, inline elements) and flushes them as one
    implicit paragraph, rather than dispatching every child through block-level handling
-   unconditionally. This also *simplified* `handleUnsupportedBlock()`, which no longer needs
+   unconditionally. This also _simplified_ `handleUnsupportedBlock()`, which no longer needs
    its own "does this have a block child" branch — `convertBlockChildren()` is correct for
    both cases now, uniformly.
 2. **`<script>`/`<style>` content leaked into the output** the first time a script+style
    fixture was actually run, because neither tag was in the block-tag list `convertBlockChildren`
-   dispatches on — they fell through to the *inline* path instead, where the generic
+   dispatches on — they fell through to the _inline_ path instead, where the generic
    "unsupported inline element" handler recurses into children and keeps their text content,
    which for `<script>`/`<style>` is code, not prose. Fixed by adding both to the block-tag
    list (so they reach the block-level drop-entirely branch) plus a matching guard in the
@@ -1166,7 +1172,7 @@ report initially flagged `[figure ...]` — its own output for a mapped `[captio
 "unknown," because the exclusion list only named WordPress's own shortcode names (`caption`,
 `gallery`, `embed`), not Cuniform's (`figure`, `video`, `embed`, `details`, `note`, `toc`,
 `include`). By the time that check runs, a `[figure ...]`/`[embed ...]` in the text is just as
-likely to be this class's *own* output as WordPress content that happened to reuse a name —
+likely to be this class's _own_ output as WordPress content that happened to reuse a name —
 either way it's recognized, not unknown. Both exclusion lists are now kept, named for what
 they actually are.
 
@@ -1181,7 +1187,7 @@ with a Markdown-significant character.
 
 **T37 note:** three new pieces in `src/Import/` — `FrontMatterEmitter` (writes a front matter
 block that `RestrictedYamlParser`, T4, can read back — the first thing in this codebase that
-needs to *write* front matter rather than only parse it), `WxrImporter` (the orchestrator: partitions
+needs to _write_ front matter rather than only parse it), `WxrImporter` (the orchestrator: partitions
 by `wp:post_type`/`wp:status`, this task's own share of §A.3's "Pipeline" step —
 BUILD-ORDER's T34 note already flagged that partitioning belonged here, not in the parser), and
 `ImportedDocumentWriter`. Plus `bin/cuniform import-wxr <path-to-export.xml>
@@ -1205,11 +1211,11 @@ own deliberate action; nothing here suggests a "promote" command exists yet.
 (T21) already turns a document's own `aliases` list into a compiled redirect at build time —
 `WxrImporter` only has to put the item's old path there (from `wp:link`'s path component, and
 only when it was a real pretty-permalink path — a `?p=123` link never had a real indexed URL,
-so it gets no alias). This is deliberately the *entire* scope of "redirect generation" this
+so it gets no alias). This is deliberately the _entire_ scope of "redirect generation" this
 task claims: SPEC §A.3 also mentions category/tag archives, feeds, and date archives in the
 same breath, but those aren't tied to any single document's front matter, Cuniform has no
 "category" concept to map WordPress's onto, and BUILD-ORDER's own T37 line names "redirect
-generation for every *document*" specifically. Left for a dedicated follow-up, not silently
+generation for every _document_" specifically. Left for a dedicated follow-up, not silently
 dropped — `WxrImporter`'s own docblock says so explicitly.
 
 **One documented judgment call**, the same kind T17 already established a pattern for
@@ -1251,10 +1257,10 @@ already accounts for every item it reads by construction (each loop iteration ei
 one document or takes an early `continue`, nothing in between), so re-deriving that accounting
 a second time here would only risk a second copy of its status/slug/date rules quietly drifting
 from the first. The one place a real count delta can still happen despite that construction is
-two *different* items resolving to the same output file path — a slug+date collision, which
+two _different_ items resolving to the same output file path — a slug+date collision, which
 `ImportedDocumentWriter` would silently resolve by one document overwriting the other on disk.
 `ImportVerifier` catches exactly this (`findDuplicateOutputPaths()`) and throws before anything
-is written — the literal reading of T38's own acceptance wording, "generated *files*," not just
+is written — the literal reading of T38's own acceptance wording, "generated _files_," not just
 documents in memory. Nothing in the real six-item export triggers it; a synthetic fixture
 (`tests/fixtures/Import/colliding.xml`, two items sharing a slug and calendar day) exercises it
 directly, both at the `ImportVerifier` level and through the CLI (confirming the staging
@@ -1266,7 +1272,7 @@ item 4) — and no built site yet either (imported documents are staged, not shi
 manual review). The adaptation: every `post`/`page` item with a real pretty-permalink path that
 did **not** get imported (a `page` item, SPEC §5.4's invalid-slug skip, `private` status, ...)
 is surfaced as an unresolved legacy URL — a path that will have no redirect once review is
-done, worth a human decision rather than a silent loss. An item that *was* imported already
+done, worth a human decision rather than a silent loss. An item that _was_ imported already
 carries its own `aliases` entry (T37) and needs no separate check here; `BuildVerifier` (T22)
 independently confirms every alias actually resolves once a real build runs over `content/`,
 which is a different, later check this task doesn't duplicate.
@@ -1293,7 +1299,7 @@ confirming this task surfaces nothing new the prior tasks hadn't already found a
 None of this real-corpus content is committed; `ImportVerifierTest` builds small in-memory
 `WxrItem`s directly, matching T35/T37's own test style, including its own collision case.
 `tests/fixtures/Import/colliding.xml` is a separate, small synthetic fixture used only at the
-CLI level (`ApplicationTest`) — confirming the *end-to-end* command, not just `ImportVerifier`
+CLI level (`ApplicationTest`) — confirming the _end-to-end_ command, not just `ImportVerifier`
 in isolation, refuses to stage anything when two real WXR items collide.
 
 **Idempotency** (T38's other named acceptance criterion) needed no new code — nothing in

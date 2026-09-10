@@ -32,16 +32,112 @@ final class TemplateResolver
         '404-root.php',
     ];
 
-    public function __construct(private readonly string $templatesDir)
-    {
+    private const ALLOWED_PARTIALS = [
+        'head.php',
+        'nav-primary.php',
+        'nav-footer.php',
+        'lang-switcher.php',
+        'post-card.php',
+        'pagination.php',
+        'toc.php',
+    ];
+
+    public function __construct(
+        private readonly string $templatesDir,
+        private readonly string $templateSet = 'default',
+    ) {
     }
 
     public function resolve(string $templateName): string
     {
+        $this->assertSafeTemplateName($templateName);
         if (!in_array($templateName, self::ALLOWED, true)) {
             throw RenderException::unknownTemplate($templateName);
         }
 
-        return rtrim($this->templatesDir, '/') . '/' . $templateName;
+        foreach ($this->candidatePaths($templateName) as $path) {
+            if (is_file($path)) {
+                return $path;
+            }
+        }
+
+        return $this->defaultPath($templateName);
+    }
+
+    public function resolvePartial(string $partialName): string
+    {
+        $normalized = str_starts_with($partialName, 'partials/')
+            ? substr($partialName, strlen('partials/'))
+            : $partialName;
+
+        $this->assertSafeTemplateName($normalized);
+        if (!in_array($normalized, self::ALLOWED_PARTIALS, true)) {
+            throw RenderException::unknownPartial($partialName);
+        }
+
+        $relative = 'partials/' . $normalized;
+        foreach ($this->candidatePaths($relative) as $path) {
+            if (is_file($path)) {
+                return $path;
+            }
+        }
+
+        return $this->defaultPath($relative);
+    }
+
+    public function resolveAsset(string $assetName): string
+    {
+        $this->assertSafeTemplateName($assetName);
+
+        foreach ($this->candidatePaths($assetName) as $path) {
+            if (is_file($path)) {
+                return $path;
+            }
+        }
+
+        return $this->defaultPath($assetName);
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function candidatePaths(string $name): array
+    {
+        $paths = [];
+
+        if ($this->templateSet !== '' && $this->templateSet !== 'default') {
+            $paths[] = $this->join($this->templatesDir, $this->templateSet, $name);
+        }
+
+        $paths[] = $this->join($this->templatesDir, $name);
+
+        return $paths;
+    }
+
+    private function defaultPath(string $name): string
+    {
+        return $this->join($this->templatesDir, $name);
+    }
+
+    private function join(string ...$segments): string
+    {
+        $path = '';
+        foreach ($segments as $segment) {
+            $segment = trim((string) $segment, '/');
+            if ($segment === '') {
+                continue;
+            }
+
+            $path = $path === '' ? $segment : $path . '/' . $segment;
+        }
+
+        return $path === '' ? '' : '/' . $path;
+    }
+
+    private function assertSafeTemplateName(string $name): void
+    {
+        if ($name === '' || preg_match('/^[A-Za-z0-9._-]+$/', $name) !== 1) {
+            throw RenderException::unknownTemplate($name);
+        }
     }
 }

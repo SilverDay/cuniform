@@ -106,6 +106,7 @@ final class BuildCacheKey
             $config->permalink,
             $config->postsPerPage,
             $config->feedItems,
+            $config->templateSet,
         ], \JSON_THROW_ON_ERROR));
     }
 

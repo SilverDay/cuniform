@@ -58,9 +58,10 @@ final class ConfigLoader
         $postsPerPage = $this->requirePositiveInt($raw, 'posts_per_page');
         $feedItems    = $this->requirePositiveInt($raw, 'feed_items');
 
-        $paths = $this->requirePaths($raw, 'paths');
-        $build = $this->requireBuild($raw, 'build');
-        $mail  = $this->requireMail($raw, 'mail');
+        $paths       = $this->requirePaths($raw, 'paths');
+        $build       = $this->requireBuild($raw, 'build');
+        $mail        = $this->requireMail($raw, 'mail');
+        $templateSet = $this->requireOptionalTemplateSet($raw, 'template_set');
 
         if ($this->errors !== []) {
             throw ConfigException::fromErrors($this->errors);
@@ -79,6 +80,7 @@ final class ConfigLoader
             paths: $paths,
             build: $build,
             mail: $mail,
+            templateSet: $templateSet,
         );
     }
 
@@ -245,6 +247,31 @@ final class ConfigLoader
                 $this->errors[] = "'{$key}' uses unknown token '{{$token}}' — allowed: "
                     . implode(', ', self::ALLOWED_PERMALINK_TOKENS);
             }
+        }
+
+        return $value;
+    }
+
+    /**
+     * @param array<array-key, mixed> $raw
+     */
+    private function requireOptionalTemplateSet(array $raw, string $key): string
+    {
+        if (!array_key_exists($key, $raw)) {
+            return 'default';
+        }
+
+        $value = $raw[$key];
+        if (!is_string($value) || $value === '') {
+            $this->errors[] = "'{$key}' must be a non-empty string or omitted";
+
+            return 'default';
+        }
+
+        if (!preg_match('/^[A-Za-z0-9._-]+$/', $value)) {
+            $this->errors[] = "'{$key}' must contain only letters, digits, dots, underscores, or dashes";
+
+            return 'default';
         }
 
         return $value;

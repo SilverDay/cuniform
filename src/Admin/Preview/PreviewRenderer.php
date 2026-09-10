@@ -130,10 +130,12 @@ final class PreviewRenderer
 
         $strings          = UiStringCatalogue::load($this->langDir, $this->config->languages);
         $dateFormatter    = new DateFormatter($strings);
-        $templateResolver = new TemplateResolver($this->config->paths->templates);
+        $templateResolver = new TemplateResolver($this->config->paths->templates, $this->config->templateSet);
 
         $fingerprinter = new AssetFingerprinter();
-        [, $stylesheetUrl] = $fingerprinter->fingerprint(rtrim($this->config->paths->templates, '/') . '/style.css');
+        [, $stylesheetUrl] = $fingerprinter->fingerprint(
+            $this->templateAssetPath('style.css')
+        );
 
         $templateStage = new SiteTemplateStage($this->config, $templateResolver, $strings, $dateFormatter, $stylesheetUrl);
 
@@ -141,6 +143,18 @@ final class PreviewRenderer
         $files      = $templateStage->build($site, [$identifier => $rendered], [$identifier => true]);
 
         return PreviewResult::rendered(PreviewBanner::inject($files[$identifier]->html));
+    }
+
+    private function templateAssetPath(string $assetName): string
+    {
+        $base = rtrim($this->config->paths->templates, '/');
+        $setPath = $base . '/' . $this->config->templateSet . '/' . $assetName;
+
+        if ($this->config->templateSet !== '' && $this->config->templateSet !== 'default' && is_file($setPath)) {
+            return $setPath;
+        }
+
+        return $base . '/' . $assetName;
     }
 
     /**

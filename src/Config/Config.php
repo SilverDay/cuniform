@@ -22,6 +22,7 @@ final class Config
         public readonly ConfigPaths $paths,
         public readonly BuildSettings $build,
         public readonly MailSettings $mail,
+        public readonly string $templateSet = 'default',
     ) {
     }
 }

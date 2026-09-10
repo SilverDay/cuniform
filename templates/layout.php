@@ -16,15 +16,18 @@ $doc    = $layout->page;
 ?>
 <!DOCTYPE html>
 <html lang="<?= eAttr($doc->language) ?>">
+
 <head>
-<?php include __DIR__ . '/partials/head.php'; ?>
+    <?php include partial('head.php'); ?>
 </head>
+
 <body>
-<?php include __DIR__ . '/partials/nav-primary.php'; ?>
-<?php include __DIR__ . '/partials/lang-switcher.php'; ?>
-<main>
-<?= $layout->content ?>
-</main>
-<?php include __DIR__ . '/partials/nav-footer.php'; ?>
+    <?php include partial('nav-primary.php'); ?>
+    <?php include partial('lang-switcher.php'); ?>
+    <main>
+        <?= $layout->content ?>
+    </main>
+    <?php include partial('nav-footer.php'); ?>
 </body>
+
 </html>

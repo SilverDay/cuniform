@@ -5,7 +5,7 @@ disk, in git, are rendered to static HTML by a build step; Apache serves the res
 in the public request path. No framework, no database, no runtime dependencies — Composer is
 dev tooling only, and `vendor/` is never deployed.
 
-The name is deliberate — one `e`, not *Cuneiform* (that's a different, unrelated project). See
+The name is deliberate — one `e`, not _Cuneiform_ (that's a different, unrelated project). See
 `docs/SPEC.md` §16 if you're wondering whether it's a typo. It isn't.
 
 The full design rationale lives in `docs/SPEC.md`; this file is the practical "how do I run
@@ -15,19 +15,22 @@ this" companion.
 
 Core engine, languages, templates, the build pipeline, and the WordPress importer are built and
 covered by an automated quality gate (see [Development](#development) below). The admin web UI
-(P2 — auth, browser-based editor, media library) is **not implemented**; for now, all authoring
-goes through git (`docs/SPEC.md` §12, "Path A"). `docs/BUILD-ORDER.md` tracks task-by-task
-status against `docs/SPEC.md` if you want the specifics of what's done and what isn't.
+(P2 — auth, browser-based editor, preview, media library) is implemented and tested locally,
+though the live-host deployment checks noted in the spec (e.g. ACME renewal against a real DNS/
+Apache setup) are still operational validation, not code-level implementation.
+`docs/BUILD-ORDER.md` tracks the task-by-task acceptance criteria against `docs/SPEC.md`;
+that checklist remains the ground truth for whether a task actually clears its live acceptance
+criteria, even when the code itself is already present.
 
-| Area | State |
-|---|---|
-| Content model, renderer, shortcodes | Done |
-| Languages (multilingual routing, hreflang, UI strings) | Done |
-| Templates, build pipeline, atomic deploy, rollback, incremental builds | Done |
-| Apache vhost / systemd units / one-time `public` setup | Built, not yet verified against a live host |
-| Admin web UI (auth, editor, preview, media library) | Not started |
-| WordPress import (WXR parse, convert, verify, review workflow) | Done |
-| Media downloader for imported WordPress attachments | Not started |
+| Area                                                                   | State                                                                                                                               |
+| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| Content model, renderer, shortcodes                                    | Done                                                                                                                                |
+| Languages (multilingual routing, hreflang, UI strings)                 | Done                                                                                                                                |
+| Templates, build pipeline, atomic deploy, rollback, incremental builds | Done                                                                                                                                |
+| Apache vhost / systemd units / one-time `public` setup                 | Implemented and locally validated; live-host ACME verification remains to be done on the target host                                |
+| Admin web UI (auth, editor, preview, media library)                    | Implemented and locally tested                                                                                                      |
+| WordPress import (WXR parse, convert, verify, review workflow)         | Done                                                                                                                                |
+| Media downloader for imported WordPress attachments                    | Not implemented as a generic downloader; the current import path handles the present WXR workflow without a live attachment fetcher |
 
 ## Requirements
 
@@ -262,7 +265,7 @@ scheduled builds both work the same way without it.
 
 ## Importing from WordPress
 
-If you're migrating an existing WordPress site, export via *Tools → Export → All content*
+If you're migrating an existing WordPress site, export via _Tools → Export → All content_
 (WXR/XML), then:
 
 ```bash

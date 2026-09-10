@@ -38,6 +38,11 @@ final class RenderException extends CuniformException
         return new self("'{$name}' is not an allow-listed template name (SPEC §9, §6.2)");
     }
 
+    public static function unknownPartial(string $name): self
+    {
+        return new self("'{$name}' is not an allow-listed partial name (SPEC §9)");
+    }
+
     public static function missingIncludeSlug(): self
     {
         return new self("[include] requires a 'page' attribute");
@@ -65,7 +70,7 @@ final class RenderException extends CuniformException
     {
         return new self(
             "[include page=\"{$slug}\"] in a '{$fromLanguage}' document resolved to a "
-            . "'{$targetLanguage}' page — cross-language includes are a build error (SPEC §6.5)"
+                . "'{$targetLanguage}' page — cross-language includes are a build error (SPEC §6.5)"
         );
     }
 }

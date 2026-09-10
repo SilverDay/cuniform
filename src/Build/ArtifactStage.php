@@ -43,11 +43,12 @@ final class ArtifactStage
         $files[] = (new SecurityTxtGenerator($this->config))->generate($now);
 
         $fingerprinter = new AssetFingerprinter();
+        $templateSet   = $this->config->templateSet;
 
-        [$cssFile, $stylesheetUrl] = $fingerprinter->fingerprint(rtrim($this->config->paths->templates, '/') . '/style.css');
+        [$cssFile, $stylesheetUrl] = $fingerprinter->fingerprint($this->templateAssetPath('style.css'));
         $files[] = $cssFile;
 
-        [$jsFile, $searchScriptUrl] = $fingerprinter->fingerprint(rtrim($this->config->paths->templates, '/') . '/search.js');
+        [$jsFile, $searchScriptUrl] = $fingerprinter->fingerprint($this->templateAssetPath('search.js'));
         $files[] = $jsFile;
 
         return [
@@ -56,5 +57,18 @@ final class ArtifactStage
             'stylesheetUrl'   => $stylesheetUrl,
             'searchScriptUrl' => $searchScriptUrl,
         ];
+    }
+
+    private function templateAssetPath(string $assetName): string
+    {
+        $base = rtrim($this->config->paths->templates, '/');
+        $path = $base . '/' . $assetName;
+        $setPath = $base . '/' . $this->config->templateSet . '/' . $assetName;
+
+        if ($this->config->templateSet !== '' && $this->config->templateSet !== 'default' && is_file($setPath)) {
+            return $setPath;
+        }
+
+        return $path;
     }
 }

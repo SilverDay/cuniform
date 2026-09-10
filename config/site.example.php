@@ -24,6 +24,10 @@ return [
     'posts_per_page'    => 10,
     'feed_items'        => 20,
 
+    // Optional: choose a named template set under templates/<name>/.
+    // If that file is missing, Cuniform falls back to templates/<file>.
+    'template_set'      => 'default',
+
     'paths' => [
         'content'   => __DIR__ . '/../content',
         'templates' => __DIR__ . '/../templates',
@@ -35,7 +39,7 @@ return [
     'build' => [
         'retain_releases'          => 5,
         'max_document_bytes'       => 2 * 1024 * 1024,
-        'page_count_drop_threshold'=> 0.10,
+        'page_count_drop_threshold' => 0.10,
         'search_index_warn_bytes'  => 750 * 1024,
     ],
 
@@ -44,6 +48,6 @@ return [
         'enabled'        => true,
         'from'           => 'cuniform@silverday.de',
         'notify'         => 'REPLACE-ME',
-        'envelope_sender'=> 'cuniform@silverday.de',
+        'envelope_sender' => 'cuniform@silverday.de',
     ],
 ];

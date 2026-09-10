@@ -42,7 +42,7 @@ final class SiteTemplateStage
         private readonly DateFormatter $dateFormatter,
         private readonly string $stylesheetUrl,
     ) {
-        $this->templateRenderer = new TemplateRenderer();
+        $this->templateRenderer = new TemplateRenderer($this->templateResolver);
     }
 
     /**

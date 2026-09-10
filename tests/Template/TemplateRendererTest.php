@@ -174,6 +174,37 @@ final class TemplateRendererTest extends TestCase
         self::assertStringContainsString('aria-current="true"', $html);
     }
 
+    public function testRendersCustomPartialWhenTemplateResolverHasSetOverride(): void
+    {
+        $templatesDir = sys_get_temp_dir() . '/cuniform_test_render_part_' . uniqid();
+        mkdir($templatesDir . '/custom/partials', 0o755, true);
+        mkdir($templatesDir . '/partials', 0o755, true);
+
+        file_put_contents($templatesDir . '/page.php', file_get_contents(self::TEMPLATES_DIR . '/page.php'));
+        file_put_contents($templatesDir . '/custom/partials/toc.php', '<nav class="custom-toc">Custom TOC</nav>');
+
+        $resolver = new \Cuniform\Template\TemplateResolver($templatesDir, 'custom');
+        $renderer = new TemplateRenderer($resolver);
+        $strings  = UiStringCatalogue::load($this->langDir, ['de']);
+
+        $doc = new PageViewModel(
+            'de',
+            'TOC Page',
+            'Summary',
+            'https://blog.silverday.de/de/toc/',
+            null,
+            $strings,
+            '<p>Body</p>',
+            false,
+            true,
+            [['level' => 2, 'id' => 'first', 'text' => 'First']]
+        );
+
+        $html = $renderer->render($templatesDir . '/page.php', $doc);
+
+        self::assertStringContainsString('<nav class="custom-toc">Custom TOC</nav>', $html);
+    }
+
     /**
      * @param list<string>                                      $tags
      * @param list<array{level: int, id: string, text: string}> $headings

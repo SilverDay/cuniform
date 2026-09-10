@@ -40,7 +40,7 @@ final class ListingTemplateStage
         private readonly string $stylesheetUrl,
         private readonly string $searchScriptUrl,
     ) {
-        $this->templateRenderer = new TemplateRenderer();
+        $this->templateRenderer = new TemplateRenderer($this->templateResolver);
         $this->routeBuilder     = new RouteBuilder($config->urlPrefix, $config->languages, $config->permalink);
     }
 

@@ -126,7 +126,7 @@ final class BuildPipeline
         $redirects       = (new RedirectMapCompiler())->compile($site, $manualRedirects);
         $redirectsFile   = (new RedirectMapGenerator($this->config))->generate($redirects['entries']);
 
-        $templateResolver = new TemplateResolver($this->config->paths->templates);
+        $templateResolver = new TemplateResolver($this->config->paths->templates, $this->config->templateSet);
         $templateStage    = new SiteTemplateStage(
             $this->config,
             $templateResolver,
